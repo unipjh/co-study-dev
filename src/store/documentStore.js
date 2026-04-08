@@ -6,7 +6,8 @@ const useDocumentStore = create((set) => ({
   numPages: 0,
   currentPage: 1,
   zoomLevel: 1.0,
-  viewMode: 'page', // 'page' | 'scroll'
+  viewMode: 'page',      // 'page' | 'scroll'
+  selectionMode: 'text', // 'text' | 'region'
   selectedText: '',
   selectionRect: null,
 
@@ -17,6 +18,7 @@ const useDocumentStore = create((set) => ({
   setCurrentPage: (page) => set({ currentPage: page }),
   setZoomLevel: (level) => set({ zoomLevel: Math.min(2.0, Math.max(0.5, level)) }),
   setViewMode: (mode) => set({ viewMode: mode }),
+  setSelectionMode: (mode) => set({ selectionMode: mode }),
   setSelection: (text, rect) => set({ selectedText: text, selectionRect: rect }),
   clearSelection: () => set({ selectedText: '', selectionRect: null }),
 }))

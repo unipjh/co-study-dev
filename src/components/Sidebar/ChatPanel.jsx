@@ -1,18 +1,18 @@
 import { useState, useRef, useEffect } from 'react'
 import useAI from '../AI/useAI'
 import useChat from '../../hooks/useChat'
-
-const COLOR_BG = { yellow: '#FFD700', blue: '#6BB5FF', green: '#5CCC7F' }
+import { getDisplayColor } from '../../lib/colorUtils'
 
 /**
  * Chat 탭 패널
- * - contextAnnotation이 있으면 해당 텍스트를 맥락으로 대화 시작
+ * - contextAnnotations 배열의 텍스트를 맥락으로 대화 시작
+ * - 맥락은 개별 × 버튼으로 제거 가능
  * - 설명 / 퀴즈 생성 빠른 액션 버튼 제공
  * - 대화 내용 Firestore 영구 저장
  *
- * @param {{ docId, contextAnnotation, onClearContext }} props
+ * @param {{ docId, contextAnnotations, onClearContext }} props
  */
-export default function ChatPanel({ docId, contextAnnotation, onClearContext }) {
+export default function ChatPanel({ docId, contextAnnotations = [], onClearContext }) {
   const { messages, addMessage } = useChat(docId)
   const { chat } = useAI()
 
@@ -22,7 +22,6 @@ export default function ChatPanel({ docId, contextAnnotation, onClearContext }) 
   const [error, setError]             = useState(null)
   const bottomRef = useRef(null)
 
-  // 새 메시지가 추가되면 자동 스크롤
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingText])
@@ -34,10 +33,18 @@ export default function ChatPanel({ docId, contextAnnotation, onClearContext }) 
     setInput('')
     setError(null)
 
-    // 컨텍스트 annotation이 있으면 사용자 메시지에 포함
-    const contextText = contextAnnotation?.text ?? null
+    // 여러 맥락 텍스트를 번호 매겨 합산
+    const hasContext = contextAnnotations.length > 0
+    const contextText = hasContext
+      ? contextAnnotations.map((a, i) => {
+          const isRegion = a.type === 'region'
+          const label = isRegion ? '[영역 선택]' : `"${a.text}"`
+          const memo  = a.content ? `\n   [메모] ${a.content}` : ''
+          return `${i + 1}. ${label}${memo}`
+        }).join('\n')
+      : null
     const fullPrompt = contextText
-      ? `[참고 텍스트: "${contextText}"]\n\n${text}`
+      ? `[참고 맥락:\n${contextText}]\n\n${text}`
       : text
 
     await addMessage('user', text, contextText)
@@ -45,7 +52,6 @@ export default function ChatPanel({ docId, contextAnnotation, onClearContext }) 
     setIsStreaming(true)
     setStreamingText('')
 
-    // Firestore에 저장된 이전 메시지를 히스토리로 사용
     const history = messages.map((m) => ({ role: m.role, content: m.content }))
 
     await chat(
@@ -66,7 +72,7 @@ export default function ChatPanel({ docId, contextAnnotation, onClearContext }) 
   }
 
   async function handleQuickAction(key) {
-    if (!contextAnnotation) return
+    if (contextAnnotations.length === 0) return
     const prompts = {
       explain: '이 내용을 쉽게 설명해줘',
       quiz:    '이 내용으로 퀴즈를 만들어줘',
@@ -75,18 +81,37 @@ export default function ChatPanel({ docId, contextAnnotation, onClearContext }) 
   }
 
   const noDoc = !docId
+  const hasContext = contextAnnotations.length > 0
 
   return (
     <div style={styles.panel}>
-      {/* 컨텍스트 배너 */}
-      {contextAnnotation ? (
+      {/* 맥락 배너 */}
+      {hasContext ? (
         <div style={styles.contextBanner}>
           <div style={styles.contextTop}>
-            <span style={{ ...styles.colorDot, background: COLOR_BG[contextAnnotation.color] }} />
-            <span style={styles.contextLabel}>선택 컨텍스트</span>
-            <button style={styles.clearBtn} onClick={onClearContext}>×</button>
+            <span style={styles.contextLabel}>선택 맥락 {contextAnnotations.length}개</span>
           </div>
-          <p style={styles.contextText}>"{contextAnnotation.text}"</p>
+          {/* 맥락 칩 목록 */}
+          <div style={styles.chipList}>
+            {contextAnnotations.map((ann) => (
+              <div key={ann.id} style={styles.chip}>
+                <span style={{ ...styles.colorDot, background: getDisplayColor(ann.color) }} />
+                <span style={styles.chipText}>
+                  {ann.type === 'region'
+                    ? ann.content ? `[영역] ${ann.content}` : '[영역 선택 — 메모 없음]'
+                    : `"${ann.text}"${ann.content ? ` / ${ann.content}` : ''}`}
+                </span>
+                <button
+                  style={styles.chipClose}
+                  onClick={() => onClearContext?.(ann.id)}
+                  title="맥락 제거"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+          {/* 빠른 액션 */}
           <div style={styles.quickActions}>
             <button
               style={styles.quickBtn}
@@ -107,7 +132,7 @@ export default function ChatPanel({ docId, contextAnnotation, onClearContext }) 
       ) : (
         <div style={styles.emptyContext}>
           <p style={styles.emptyContextHint}>
-            하이라이트를 클릭 → 'Chat으로 보내기'로<br />맥락 기반 대화를 시작할 수 있습니다
+            하이라이트 클릭 → '맥락 추가'로<br />맥락 기반 대화를 시작할 수 있습니다
           </p>
         </div>
       )}
@@ -185,7 +210,7 @@ const styles = {
     overflow: 'hidden',
     background: '#fafafa',
   },
-  // 컨텍스트 배너
+  // 맥락 배너
   contextBanner: {
     background: '#f0f0ff',
     borderBottom: '1px solid #e0e0ff',
@@ -193,24 +218,47 @@ const styles = {
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
-    gap: 6,
+    gap: 8,
   },
-  contextTop: { display: 'flex', alignItems: 'center', gap: 6 },
-  colorDot: { width: 9, height: 9, borderRadius: '50%', flexShrink: 0 },
-  contextLabel: { fontSize: 10, color: '#6366f1', fontWeight: 700, textTransform: 'uppercase', flex: 1 },
-  clearBtn: { fontSize: 15, color: '#aaa', cursor: 'pointer', lineHeight: 1, padding: '0 2px' },
-  contextText: {
-    fontSize: 12, color: '#444', lineHeight: 1.5, fontStyle: 'italic',
-    borderLeft: '2px solid #6366f1', paddingLeft: 8,
-    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+  contextTop: { display: 'flex', alignItems: 'center' },
+  contextLabel: { fontSize: 10, color: '#6366f1', fontWeight: 700, textTransform: 'uppercase' },
+  // 맥락 칩 목록
+  chipList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    maxHeight: 100,
+    overflowY: 'auto',
   },
+  chip: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 5,
+    background: '#fff',
+    border: '1px solid #e0e0ff',
+    borderRadius: 6,
+    padding: '4px 6px',
+  },
+  colorDot: { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
+  chipText: {
+    fontSize: 11,
+    color: '#444',
+    lineHeight: 1.4,
+    flex: 1,
+    fontStyle: 'italic',
+    display: '-webkit-box',
+    WebkitLineClamp: 1,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+  },
+  chipClose: { fontSize: 14, color: '#aaa', cursor: 'pointer', lineHeight: 1, padding: '0 2px', flexShrink: 0 },
   quickActions: { display: 'flex', gap: 6 },
   quickBtn: {
     padding: '4px 12px', borderRadius: 5,
     background: '#6366f1', color: '#fff',
     fontSize: 12, fontWeight: 600, cursor: 'pointer',
   },
-  // 컨텍스트 없을 때 힌트
+  // 맥락 없을 때 힌트
   emptyContext: {
     padding: '10px 14px',
     background: '#f9f9f9',

@@ -4,40 +4,49 @@ import { doc, getDoc } from 'firebase/firestore'
 import { ref, getBlob } from 'firebase/storage'
 import { db, storage } from '../lib/firebase'
 import useDocumentStore from '../store/documentStore'
+import useAuthStore from '../store/authStore'
 import TopToolbar from '../components/Toolbar/TopToolbar'
 import DocumentCanvas from '../components/Canvas/DocumentCanvas'
+import PageThumbnailPanel from '../components/Canvas/PageThumbnailPanel'
 import SidePanel from '../components/Sidebar/SidePanel'
 import useAnnotation from '../hooks/useAnnotation'
 
 export default function ViewerPage() {
   const { docId }    = useParams()
   const navigate     = useNavigate()
-  const { setStorageDoc } = useDocumentStore()
+  const { setStorageDoc, pdfBlob, numPages, currentPage, setCurrentPage } = useDocumentStore()
+  const uid = useAuthStore((s) => s.user?.uid)
 
-  const [sidebarOpen,       setSidebarOpen]       = useState(true)
-  const [activeTab,         setActiveTab]          = useState('chat')
-  const [contextAnnotation, setContextAnnotation]  = useState(null)
-  const [loadError,         setLoadError]          = useState(null)
+  const [sidebarOpen,        setSidebarOpen]        = useState(true)
+  const [activeTab,          setActiveTab]           = useState('chat')
+  const [contextAnnotations, setContextAnnotations]  = useState([])
+  const [thumbnailOpen,      setThumbnailOpen]       = useState(false)
+  const [loadError,          setLoadError]           = useState(null)
 
   const { annotations, remove: removeAnnotation } = useAnnotation(docId)
 
   useEffect(() => {
+    if (!uid) return
     async function loadDoc() {
-      const snap = await getDoc(doc(db, 'documents', docId))
+      const snap = await getDoc(doc(db, 'users', uid, 'documents', docId))
       if (!snap.exists()) { setLoadError('문서를 찾을 수 없습니다'); return }
       const meta = snap.data()
-
-      // Blob을 직접 react-pdf에 전달 — Blob URL 불필요
       const blob = await getBlob(ref(storage, meta.storagePath))
       setStorageDoc({ blob, name: meta.name })
     }
     loadDoc().catch((e) => setLoadError(e.message))
-  }, [docId])
+  }, [docId, uid])
 
   function handleSendToChat(annotation) {
-    setContextAnnotation(annotation)
+    setContextAnnotations((prev) =>
+      prev.find((a) => a.id === annotation.id) ? prev : [...prev, annotation]
+    )
     setActiveTab('chat')
     setSidebarOpen(true)
+  }
+
+  function handleClearContext(id) {
+    setContextAnnotations((prev) => prev.filter((a) => a.id !== id))
   }
 
   if (loadError) {
@@ -55,9 +64,29 @@ export default function ViewerPage() {
         onSidebarToggle={() => setSidebarOpen((v) => !v)}
         sidebarOpen={sidebarOpen}
         onHome={() => navigate('/')}
+        onPageLabelClick={() => setThumbnailOpen((v) => !v)}
       />
       <div style={styles.body}>
-        <DocumentCanvas docId={docId} onSendToChat={handleSendToChat} />
+        {/* 썸네일 패널 — TopToolbar 바로 아래 absolute overlay */}
+        {thumbnailOpen && (
+          <PageThumbnailPanel
+            pdfBlob={pdfBlob}
+            numPages={numPages}
+            currentPage={currentPage}
+            onPageSelect={(page) => {
+              setCurrentPage(page)
+              useDocumentStore.getState().setViewMode('page')
+            }}
+            onClose={() => setThumbnailOpen(false)}
+          />
+        )}
+        <DocumentCanvas
+          docId={docId}
+          onSendToChat={handleSendToChat}
+          activeTab={activeTab}
+          onTabChange={setActiveTab}
+          sidebarOpen={sidebarOpen}
+        />
         {sidebarOpen && (
           <SidePanel
             docId={docId}
@@ -66,8 +95,8 @@ export default function ViewerPage() {
             onScrollToAnnotation={(ann) => {
               useDocumentStore.getState().setCurrentPage(ann.pageIndex + 1)
             }}
-            contextAnnotation={contextAnnotation}
-            onClearContext={() => setContextAnnotation(null)}
+            contextAnnotations={contextAnnotations}
+            onClearContext={handleClearContext}
             onSendToChat={handleSendToChat}
             activeTab={activeTab}
             onTabChange={setActiveTab}
@@ -80,7 +109,7 @@ export default function ViewerPage() {
 
 const styles = {
   root: { height: '100%', display: 'flex', flexDirection: 'column' },
-  body: { flex: 1, display: 'flex', overflow: 'hidden' },
+  body: { flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' },
   error: {
     height: '100%', display: 'flex', flexDirection: 'column',
     alignItems: 'center', justifyContent: 'center', gap: 16,

@@ -24,13 +24,33 @@ export default function AnnotationPopup({
 }) {
   const [editing, setEditing] = useState(false)
   const [content, setContent] = useState(annotation.content ?? '')
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const ref = useRef(null)
 
   // annotation이 바뀌면 상태 초기화
   useEffect(() => {
     setContent(annotation.content ?? '')
     setEditing(false)
+    setDragOffset({ x: 0, y: 0 })
   }, [annotation.id])
+
+  function startDrag(e) {
+    e.preventDefault()
+    e.stopPropagation()
+    const startX = e.clientX
+    const startY = e.clientY
+    const base = { ...dragOffset }
+
+    function onMove(ev) {
+      setDragOffset({ x: base.x + ev.clientX - startX, y: base.y + ev.clientY - startY })
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }
 
   // 팝업 외부 클릭 시 닫기
   useEffect(() => {
@@ -46,10 +66,10 @@ export default function AnnotationPopup({
   // 마지막 줄 rect 기준으로 팝업을 하이라이트 아래에 위치
   const lastRect = annotation.rects[annotation.rects.length - 1]
   const POPUP_WIDTH = 248
-  let top  = (lastRect.top + lastRect.height) * containerSize.height + 6
-  let left = annotation.rects[0].left * containerSize.width
-  // 오른쪽 경계 초과 방지
-  left = Math.min(left, containerSize.width - POPUP_WIDTH - 4)
+  let top  = (lastRect.top + lastRect.height) * containerSize.height + 6 + dragOffset.y
+  let left = annotation.rects[0].left * containerSize.width + dragOffset.x
+  // 오른쪽 경계 초과 방지 (드래그 중에는 적용 안 함)
+  if (dragOffset.x === 0) left = Math.min(left, containerSize.width - POPUP_WIDTH - 4)
 
   function handleSave() {
     onUpdate?.(annotation.id, { content })
@@ -63,6 +83,11 @@ export default function AnnotationPopup({
       // 클릭이 selection을 건드리지 않도록
       onPointerDown={(e) => e.stopPropagation()}
     >
+      {/* 드래그 핸들 */}
+      <div style={styles.dragHandle} onMouseDown={startDrag} title="드래그하여 이동">
+        ⠿
+      </div>
+
       {/* 헤더: 색상 변경 버튼 + 삭제 */}
       <div style={styles.header}>
         {COLORS.map((c) => (
@@ -142,6 +167,17 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
+  },
+  dragHandle: {
+    textAlign: 'center',
+    fontSize: 14,
+    color: '#ccc',
+    cursor: 'grab',
+    userSelect: 'none',
+    lineHeight: 1,
+    paddingBottom: 4,
+    borderBottom: '1px solid #f0f0f0',
+    marginBottom: 4,
   },
   header: { display: 'flex', alignItems: 'center', gap: 6 },
   colorBtn: {

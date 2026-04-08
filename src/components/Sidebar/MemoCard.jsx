@@ -1,5 +1,4 @@
-const COLOR_BG    = { yellow: '#FFD700', blue: '#6BB5FF', green: '#5CCC7F' }
-const COLOR_LABEL = { yellow: '중요', blue: '이해필요', green: '암기' }
+import { getDisplayColor, getColorLabel } from '../../lib/colorUtils'
 
 /**
  * Memo 탭의 개별 annotation 카드
@@ -7,8 +6,8 @@ const COLOR_LABEL = { yellow: '중요', blue: '이해필요', green: '암기' }
  * @param {{ annotation, onDelete, onScrollTo, onSendToChat }} props
  */
 export default function MemoCard({ annotation, onDelete, onScrollTo, onSendToChat }) {
-  const colorBg    = COLOR_BG[annotation.color]    ?? '#FFD700'
-  const colorLabel = COLOR_LABEL[annotation.color] ?? ''
+  const colorBg    = getDisplayColor(annotation.color)
+  const colorLabel = getColorLabel(annotation.color)
 
   return (
     <div style={styles.card}>
@@ -43,7 +42,7 @@ export default function MemoCard({ annotation, onDelete, onScrollTo, onSendToCha
       )}
 
       <button style={styles.chatBtn} onClick={() => onSendToChat?.(annotation)}>
-        Chat으로 보내기
+        맥락 추가
       </button>
     </div>
   )

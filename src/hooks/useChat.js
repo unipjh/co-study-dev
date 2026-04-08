@@ -2,10 +2,11 @@ import { useEffect } from 'react'
 import { collection, doc, onSnapshot, setDoc, query, orderBy } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import useChatStore from '../store/chatStore'
+import useAuthStore from '../store/authStore'
 import { generateId } from '../lib/selectionUtils'
 
-function msgsCol(docId) {
-  return collection(db, 'chats', docId, 'messages')
+function msgsCol(uid, docId) {
+  return collection(db, 'users', uid, 'chats', docId, 'messages')
 }
 
 /**
@@ -20,21 +21,22 @@ function msgsCol(docId) {
  */
 export default function useChat(docId) {
   const { loadMessages, getMessages } = useChatStore()
+  const uid = useAuthStore((s) => s.user?.uid)
 
   useEffect(() => {
-    if (!docId) return
-    const q = query(msgsCol(docId), orderBy('createdAt', 'asc'))
+    if (!docId || !uid) return
+    const q = query(msgsCol(uid, docId), orderBy('createdAt', 'asc'))
     const unsub = onSnapshot(q, (snapshot) => {
       const items = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }))
       loadMessages(docId, items)
     })
     return unsub
-  }, [docId])
+  }, [docId, uid])
 
   const messages = getMessages(docId)
 
   async function addMessage(role, content, contextText = null) {
-    if (!docId) return null
+    if (!docId || !uid) return null
     const msg = {
       id: generateId('msg'),
       role,
@@ -42,7 +44,7 @@ export default function useChat(docId) {
       contextText,
       createdAt: new Date().toISOString(),
     }
-    await setDoc(doc(msgsCol(docId), msg.id), msg)
+    await setDoc(doc(msgsCol(uid, docId), msg.id), msg)
     return msg
   }
 

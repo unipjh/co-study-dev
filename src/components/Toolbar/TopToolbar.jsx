@@ -1,8 +1,10 @@
 import useDocumentStore from '../../store/documentStore'
 
-export default function TopToolbar({ onSidebarToggle, sidebarOpen, onHome }) {
-  const { pdfName, currentPage, numPages, zoomLevel, viewMode, setCurrentPage, setZoomLevel, setViewMode } =
-    useDocumentStore()
+export default function TopToolbar({ onSidebarToggle, sidebarOpen, onHome, onPageLabelClick }) {
+  const {
+    pdfName, currentPage, numPages, zoomLevel, viewMode,
+    setCurrentPage, setZoomLevel,
+  } = useDocumentStore()
 
   return (
     <div style={styles.bar}>
@@ -18,21 +20,6 @@ export default function TopToolbar({ onSidebarToggle, sidebarOpen, onHome }) {
       </div>
 
       <div style={styles.center}>
-        <button
-          style={{ ...styles.viewBtn, fontWeight: viewMode === 'page' ? 700 : 400 }}
-          onClick={() => setViewMode('page')}
-        >
-          페이지
-        </button>
-        <button
-          style={{ ...styles.viewBtn, fontWeight: viewMode === 'scroll' ? 700 : 400 }}
-          onClick={() => setViewMode('scroll')}
-        >
-          스크롤
-        </button>
-
-        <span style={styles.divider} />
-
         <button style={styles.iconBtn} onClick={() => setZoomLevel(zoomLevel - 0.1)}>−</button>
         <span style={styles.zoomLabel}>{Math.round(zoomLevel * 100)}%</span>
         <button style={styles.iconBtn} onClick={() => setZoomLevel(zoomLevel + 0.1)}>+</button>
@@ -47,7 +34,9 @@ export default function TopToolbar({ onSidebarToggle, sidebarOpen, onHome }) {
             >
               ←
             </button>
-            <span style={styles.pageLabel}>{currentPage} / {numPages}</span>
+            <button style={styles.pageLabel} onClick={onPageLabelClick}>
+              {currentPage} / {numPages} ▾
+            </button>
             <button
               style={styles.iconBtn}
               onClick={() => setCurrentPage(Math.min(numPages, currentPage + 1))}
@@ -92,9 +81,12 @@ const styles = {
     fontWeight: 600,
   },
   fileName: { fontSize: 13, color: '#666', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  viewBtn: { padding: '4px 8px', borderRadius: 4, fontSize: 13, color: '#1a1a1a' },
   iconBtn: { padding: '4px 8px', borderRadius: 4, fontSize: 13, color: '#1a1a1a', background: '#f0f0f0' },
   zoomLabel: { minWidth: 36, textAlign: 'center', fontSize: 13 },
-  pageLabel: { minWidth: 48, textAlign: 'center', fontSize: 13 },
+  pageLabel: {
+    minWidth: 56, textAlign: 'center', fontSize: 13,
+    padding: '4px 8px', borderRadius: 4,
+    background: '#f0f0f0', color: '#1a1a1a', cursor: 'pointer',
+  },
   divider: { width: 1, height: 20, background: '#e0e0e0', margin: '0 4px' },
 }
