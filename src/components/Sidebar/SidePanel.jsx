@@ -1,5 +1,6 @@
 import ChatPanel from './ChatPanel'
 import MemoPanel from './MemoPanel'
+import MindMapPanel from './MindMapPanel'
 
 /**
  * 우측 사이드 패널 — Chat / Memo / MindMap 탭 컨테이너
@@ -46,9 +47,7 @@ export default function SidePanel({
         />
       )}
       {activeTab === 'mindmap' && (
-        <div style={styles.comingSoon}>
-          <p style={styles.comingSoonText}>준비 중입니다</p>
-        </div>
+        <MindMapPanel docId={docId} />
       )}
     </div>
   )
@@ -56,19 +55,12 @@ export default function SidePanel({
 
 const styles = {
   panel: {
-    width: 300,
+    width: '100%',
+    height: '100%',
     background: '#fff',
     borderLeft: '1px solid #e0e0e0',
     display: 'flex',
     flexDirection: 'column',
-    flexShrink: 0,
     overflow: 'hidden',
   },
-  comingSoon: {
-    flex: 1,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  comingSoonText: { color: '#ccc', fontSize: 14 },
 }

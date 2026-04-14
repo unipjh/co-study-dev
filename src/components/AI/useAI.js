@@ -27,12 +27,24 @@ A. (정답)
 ${text}`,
 }
 
-function getModel() {
+function getGenAI() {
   const apiKey = import.meta.env.VITE_GEMINI_API_KEY
   if (!apiKey) throw new Error('.env에 VITE_GEMINI_API_KEY를 설정해주세요.')
-  const genAI = new GoogleGenerativeAI(apiKey)
-  return genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+  return new GoogleGenerativeAI(apiKey)
+}
+
+// 빠른 단발 요청 (explain / quiz) — 저비용 경량 모델
+function getFlashLiteModel() {
+  return getGenAI().getGenerativeModel({
+    model: 'gemini-2.5-flash-lite',
+    systemInstruction: SYSTEM_PROMPT,
+  })
+}
+
+// Chat / 마인드맵 — 균형 모델
+function getFlashModel() {
+  return getGenAI().getGenerativeModel({
+    model: 'gemini-2.5-flash',
     systemInstruction: SYSTEM_PROMPT,
   })
 }
@@ -43,7 +55,7 @@ export default function useAI() {
   const [error, setError]           = useState(null)
   const abortRef = useRef(null)
 
-  // 단발 요청 (설명 / 퀴즈 생성)
+  // 단발 요청 (설명 / 퀴즈 생성) — Flash-Lite
   const ask = useCallback(async (selectedText, functionKey) => {
     abortRef.current?.abort()
     const controller = new AbortController()
@@ -56,7 +68,7 @@ export default function useAI() {
     const prompt = (QUICK_PROMPTS[functionKey] ?? QUICK_PROMPTS.explain)(selectedText)
 
     try {
-      const model = getModel()
+      const model = getFlashLiteModel()
       const result = await model.generateContentStream(prompt, { signal: controller.signal })
       for await (const chunk of result.stream) {
         if (controller.signal.aborted) break
@@ -77,21 +89,26 @@ export default function useAI() {
    * @param {(chunk: string, full: string) => void} onChunk
    * @param {(full: string) => void} onDone
    * @param {(errMsg: string) => void} onError
+   * @param {Array<{inlineData:{data:string,mimeType:string}}>} imageParts — 인라인 이미지 (선택)
    */
-  const chat = useCallback(async (history, userMessage, onChunk, onDone, onError) => {
+  const chat = useCallback(async (history, userMessage, onChunk, onDone, onError, imageParts = []) => {
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
 
     try {
-      const model = getModel()
+      const model = getFlashModel()
       // Gemini role: 'user' | 'model'
       const geminiHistory = history.map((m) => ({
         role: m.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: m.content }],
       }))
       const session = model.startChat({ history: geminiHistory })
-      const result = await session.sendMessageStream(userMessage, { signal: controller.signal })
+      // 이미지가 있으면 멀티파트 메시지로 전송
+      const messageContent = imageParts.length > 0
+        ? [...imageParts, { text: userMessage }]
+        : userMessage
+      const result = await session.sendMessageStream(messageContent, { signal: controller.signal })
 
       let full = ''
       for await (const chunk of result.stream) {
@@ -108,6 +125,67 @@ export default function useAI() {
     }
   }, [])
 
+  /**
+   * 마인드맵 3-pass 생성 (비스트리밍)
+   * @param {string} text           — 추출된 문서 텍스트
+   * @param {(p:{pass:number,label:string}) => void} onProgress
+   * @returns {Promise<{nodes, edges}>}
+   */
+  const generateMindMap = useCallback(async (text, onProgress) => {
+    const model = getFlashModel()
+    const session = model.startChat({
+      generationConfig: { responseMimeType: 'application/json', temperature: 0.4 },
+    })
+
+    // Pass 1 — 핵심 개념 추출
+    onProgress?.({ pass: 1, label: '핵심 개념 추출 중…' })
+    const r1 = await session.sendMessage(
+      `다음 학습 자료에서 핵심 개념을 5~10개 추출하세요.
+반드시 아래 JSON 배열 형식으로만 출력하세요 (다른 텍스트 없이):
+[{"id":"node_1","label":"개념(2~5자)","detail":"1~2문장 설명","group":"core|process|structure|effect","importance":1|2|3}]
+
+group 기준: core=중심주제, process=과정·절차, structure=구조·구성요소, effect=결과·효과
+importance: 3=가장 중요, 1=보조 개념
+
+학습 자료:
+${text}`
+    )
+    const nodesRaw = JSON.parse(r1.response.text())
+    const nodes = Array.isArray(nodesRaw) ? nodesRaw : (nodesRaw.nodes ?? [])
+
+    // Pass 2 — 관계 분류
+    onProgress?.({ pass: 2, label: '개념 간 관계 분류 중…' })
+    const r2 = await session.sendMessage(
+      `위 개념들 사이의 의미 있는 관계를 추출하세요.
+실제 텍스트에 근거가 있는 관계만 포함하세요.
+
+JSON 배열 형식으로만 출력하세요:
+[{"id":"edge_1_2","from":"node_id","to":"node_id","label":"한국어 관계 설명","type":"causes|exemplifies|contrasts|contains|related"}]`
+    )
+    const edgesRaw = JSON.parse(r2.response.text())
+    const edges = Array.isArray(edgesRaw) ? edgesRaw : (edgesRaw.edges ?? [])
+
+    // Pass 3 — 원문 그라운딩
+    onProgress?.({ pass: 3, label: '원문 인용 연결 중…' })
+    const r3 = await session.sendMessage(
+      `각 개념 노드에 원문 인용구와 페이지 번호를 연결하세요.
+반드시 텍스트에서 실제로 등장하는 문장을 발췌하세요.
+
+JSON 배열 형식으로만 출력하세요:
+[{"id":"node_id","sources":[{"pageIndex":0,"quote":"원문 인용구 (1문장 이내)"}]}]`
+    )
+    const sourcesRaw = JSON.parse(r3.response.text())
+    const sourcesList = Array.isArray(sourcesRaw) ? sourcesRaw : (sourcesRaw.nodes ?? [])
+
+    // sources를 nodes에 병합
+    const enrichedNodes = nodes.map((n) => {
+      const found = sourcesList.find((s) => s.id === n.id)
+      return found ? { ...n, sources: found.sources ?? [] } : { ...n, sources: [] }
+    })
+
+    return { nodes: enrichedNodes, edges }
+  }, [])
+
   const abort = useCallback(() => {
     abortRef.current?.abort()
     setIsStreaming(false)
@@ -119,5 +197,5 @@ export default function useAI() {
     setError(null)
   }, [abort])
 
-  return { response, isStreaming, error, ask, abort, reset, chat }
+  return { response, isStreaming, error, ask, abort, reset, chat, generateMindMap }
 }

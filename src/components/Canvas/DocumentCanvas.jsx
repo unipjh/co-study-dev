@@ -62,7 +62,7 @@ function RegionDragPreview({ drag }) {
 const SIDEBAR_TABS = [
   { key: 'chat',    label: 'Chat' },
   { key: 'memo',    label: 'Memo' },
-  { key: 'mindmap', label: 'Map', disabled: true },
+  { key: 'mindmap', label: 'Map' },
 ]
 
 export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabChange, sidebarOpen }) {
@@ -88,10 +88,51 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
   const pageContainerRef = useRef(null)
   const firstScrollRef   = useRef(null)
   const pageRefs         = useRef({})
+  const outerRef         = useRef(null)  // 스크롤 컨테이너 (pan mode용)
 
   // 영역 선택 드래그 상태
   const [regionDrag, setRegionDrag] = useState(null)
-  // { containerEl, pageIndex, x0, y0, x1, y1 } — px, container 기준
+
+  // 페이지→스크롤 전환 시 위치 유지용
+  const prevViewModeRef   = useRef(viewMode)
+  const scrollToPageRef   = useRef(currentPage)
+
+  useEffect(() => {
+    scrollToPageRef.current = currentPage
+  }, [currentPage])
+
+  // ── 페이지→스크롤 전환 시 현재 페이지로 스크롤 ───────────────
+  useEffect(() => {
+    if (viewMode === 'scroll' && prevViewModeRef.current === 'page') {
+      const pageIdx = scrollToPageRef.current - 1
+      // 스크롤 모드로 렌더 완료 후 이동
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const el = pageRefs.current[pageIdx]
+          if (el) el.scrollIntoView({ behavior: 'instant', block: 'start' })
+        })
+      })
+    }
+    prevViewModeRef.current = viewMode
+  }, [viewMode])
+
+  // ── 키보드 방향키 페이지 전환 (page 모드 전용) ────────────────
+  useEffect(() => {
+    function handleKeyDown(e) {
+      if (viewMode !== 'page') return
+      const tag = document.activeElement?.tagName?.toLowerCase()
+      if (tag === 'input' || tag === 'textarea') return
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault()
+        setCurrentPage(Math.max(1, currentPage - 1))
+      } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault()
+        setCurrentPage(Math.min(numPages, currentPage + 1))
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [viewMode, currentPage, numPages, setCurrentPage])
 
   useEffect(() => {
     setContainerSize(null)
@@ -113,6 +154,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
 
   useEffect(() => {
     function handleSelectionChange() {
+      if (selectionMode === 'pan') return
       const sel = window.getSelection()
       if (!sel || sel.rangeCount === 0 || sel.isCollapsed) {
         setDragRects(null)
@@ -162,16 +204,41 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
 
     document.addEventListener('selectionchange', handleSelectionChange)
     return () => document.removeEventListener('selectionchange', handleSelectionChange)
-  }, [viewMode, currentPage])
+  }, [viewMode, currentPage, selectionMode])
+
+  // ── 스크롤 모드에서 올바른 페이지 컨테이너 찾기 ───────────────
+  function findScrollContainer() {
+    const sel = window.getSelection()
+    if (!sel || sel.rangeCount === 0) return { container: null, selPageIndex: 0 }
+    const anchorNode = sel.anchorNode
+    for (const [idx, el] of Object.entries(pageRefs.current)) {
+      if (el && el.contains(anchorNode)) {
+        return { container: el, selPageIndex: Number(idx) }
+      }
+    }
+    return { container: null, selPageIndex: 0 }
+  }
 
   const handleMouseUp = useCallback(() => {
-    if (selectionMode === 'region') return  // region 모드에서는 text 선택 무시
-    const container = viewMode === 'page' ? pageContainerRef.current : firstScrollRef.current
-    if (!container) return
-    const info = extractSelection(container, currentPage - 1)
+    if (selectionMode === 'region') return
+    if (selectionMode === 'pan') return
+
+    let container = null
+    let selPageIndex = currentPage - 1
+
+    if (viewMode === 'page') {
+      container = pageContainerRef.current
+    } else {
+      const found = findScrollContainer()
+      container    = found.container
+      selPageIndex = found.selPageIndex
+    }
+
+    if (!container) { setDragRects(null); return }
+
+    const info = extractSelection(container, selPageIndex)
     if (info) {
-      window.getSelection()?.removeAllRanges()
-      setDragRects(null)
+      // removeAllRanges 하지 않음 → 사용자가 Ctrl+C로 복사 가능
       setActiveAnnotation(null)
       setAiState(null)
       setSelection(info)
@@ -233,6 +300,34 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
 
     handleMouseUp()
   }, [selectionMode, viewMode, handleMouseUp])
+
+  // ── Pan 모드 드래그 스크롤 ────────────────────────────────────
+  const handlePanMouseDown = useCallback((e) => {
+    if (selectionMode !== 'pan') return
+    if (e.button !== 0) return
+    const container = outerRef.current
+    if (!container) return
+
+    const startX     = e.clientX
+    const startY     = e.clientY
+    const initLeft   = container.scrollLeft
+    const initTop    = container.scrollTop
+
+    container.style.cursor = 'grabbing'
+
+    function onMouseMove(ev) {
+      container.scrollLeft = initLeft - (ev.clientX - startX)
+      container.scrollTop  = initTop  - (ev.clientY - startY)
+    }
+    function onMouseUp() {
+      container.style.cursor = 'grab'
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    e.preventDefault()
+  }, [selectionMode])
 
   // ── 영역 선택 핸들러 ──────────────────────────────────────────
   function handleRegionMouseDown(e, pageIndex, containerEl) {
@@ -311,6 +406,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
     if (!selection) return
     const groups = [...pendingGroups, selection]
     addAnnotation(groups, color, content)
+    window.getSelection()?.removeAllRanges()
     setSelection(null)
     setPendingGroups([])
   }
@@ -318,6 +414,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
   // "추가 선택" — 현재 selection을 pending에 쌓고 toolbar 닫기
   function handleAddSelection() {
     if (!selection) return
+    window.getSelection()?.removeAllRanges()
     setPendingGroups((prev) => [...prev, selection])
     setSelection(null)
     setDragRects(null)
@@ -328,11 +425,65 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
     setPendingGroups([])
   }
 
+  // 누적 항목 개별 제거
+  function handleRemovePending(index) {
+    setPendingGroups((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  // 소프트 닫기: toolbar만 닫음, pendingGroups 보존 (외부 클릭, 페이지 이동 등)
+  function handleSoftClose() {
+    window.getSelection()?.removeAllRanges()
+    setSelection(null)
+    setDragRects(null)
+  }
+
+  // 명시적 취소: pendingGroups까지 초기화 (취소 버튼, 모두 지우기)
   function handleSelectionClose() {
     window.getSelection()?.removeAllRanges()
     setSelection(null)
     setDragRects(null)
     setPendingGroups([])
+  }
+
+  // ── 영역 선택 이미지 캡처 (pdf.js 캔버스 크롭) ───────────────
+  function captureRegionAsBase64(containerEl, rects) {
+    if (!containerEl || !rects?.length) return null
+    const pageCanvas = containerEl.querySelector('canvas')
+    if (!pageCanvas) return null
+    const displayRect = containerEl.getBoundingClientRect()
+    const rect = rects[0]  // 영역 선택은 단일 rect
+    const scaleX = pageCanvas.width / displayRect.width
+    const scaleY = pageCanvas.height / displayRect.height
+    const srcX = Math.round(rect.left   * displayRect.width  * scaleX)
+    const srcY = Math.round(rect.top    * displayRect.height * scaleY)
+    const srcW = Math.round(rect.width  * displayRect.width  * scaleX)
+    const srcH = Math.round(rect.height * displayRect.height * scaleY)
+    if (srcW <= 0 || srcH <= 0) return null
+    const tmp = document.createElement('canvas')
+    tmp.width  = srcW
+    tmp.height = srcH
+    const ctx = tmp.getContext('2d')
+    if (!ctx) return null
+    ctx.drawImage(pageCanvas, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH)
+    return tmp.toDataURL('image/png').split(',')[1]  // base64 (prefix 제거)
+  }
+
+  function handleSendImageToChat() {
+    if (!selection || !selection.isRegion) return
+    const containerEl = viewMode === 'page'
+      ? pageContainerRef.current
+      : pageRefs.current[selection.pageIndex]
+    const imageData = captureRegionAsBase64(containerEl, selection.rects)
+    onSendToChat?.({
+      id:        `region_${Date.now()}`,
+      type:      'region',
+      text:      '[영역 선택]',
+      color:     'blue',
+      pageIndex: selection.pageIndex,
+      content:   '',
+      imageData,
+    })
+    handleSoftClose()
   }
 
   function handleAnnotationClick(ann) {
@@ -345,6 +496,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
     if (!selection) return
     const saved = selection
     setAiState({ selectionInfo: saved })
+    window.getSelection()?.removeAllRanges()
     setSelection(null)
     setDragRects(null)
     setPendingGroups([])
@@ -376,6 +528,13 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
     .filter((g) => g.pageIndex === currentPage - 1)
     .flatMap((g) => g.rects)
 
+  // pan 모드 outer 스타일
+  const outerStyle = {
+    ...styles.outer,
+    cursor: selectionMode === 'pan' ? 'grab' : undefined,
+    userSelect: selectionMode === 'pan' ? 'none' : undefined,
+  }
+
   if (!pdfBlob) {
     return (
       <div style={styles.canvasWrapper}>
@@ -388,7 +547,12 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
 
   return (
     <div style={styles.canvasWrapper}>
-      <div style={styles.outer} onMouseUp={handleMouseUp}>
+      <div
+        ref={outerRef}
+        style={outerStyle}
+        onMouseUp={handleMouseUp}
+        onMouseDown={handlePanMouseDown}
+      >
         <Document
           file={pdfFile}
           onLoadSuccess={({ numPages: n }) => setNumPages(n)}
@@ -565,6 +729,13 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
             >
               ⬚
             </button>
+            <button
+              title="손 커서 (화면 이동)"
+              style={{ ...styles.barBtn, ...(selectionMode === 'pan' ? styles.barBtnActive : {}) }}
+              onClick={() => setSelectionMode('pan')}
+            >
+              ✋
+            </button>
 
             {selectionMode === 'text' && viewMode === 'page' && (
               <>
@@ -617,11 +788,15 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
         <SelectionToolbar
           viewportRect={selection.viewportRect}
           onSave={handleSelectionSave}
-          onClose={handleSelectionClose}
+          onClose={handleSoftClose}
           onAITutor={handleAITutor}
+          pendingGroups={pendingGroups}
           pendingCount={pendingGroups.length}
           onAddSelection={handleAddSelection}
-          onClearPending={handleClearPending}
+          onClearPending={handleSelectionClose}
+          onRemovePending={handleRemovePending}
+          isRegion={!!selection.isRegion}
+          onSendImageToChat={handleSendImageToChat}
         />
       )}
 

@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@xyflow/react": "^12.10.2",
+    "dagre": "^0.8.5",
     "firebase": "^11.6.0",
     "nanoid": "^5.1.7",
     "react": "^19.1.0",

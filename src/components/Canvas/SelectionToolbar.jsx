@@ -12,21 +12,26 @@ const PRESET_COLORS = [
  * phase 'color' — 색상 선택 (프리셋 + 커스텀) + AI ⚡ + 추가선택
  * phase 'memo'  — 메모 입력 (공란 허용)
  *
- * @param {{ viewportRect, onSave, onClose, onAITutor, pendingCount, onAddSelection, onClearPending }} props
+ * @param {{ viewportRect, onSave, onClose, onAITutor, pendingGroups, pendingCount, onAddSelection, onClearPending, onRemovePending, isRegion, onSendImageToChat }} props
  */
 export default function SelectionToolbar({
   viewportRect,
   onSave,
   onClose,
   onAITutor,
+  pendingGroups = [],
   pendingCount = 0,
   onAddSelection,
   onClearPending,
+  onRemovePending,
+  isRegion = false,
+  onSendImageToChat,
 }) {
   const [phase, setPhase]             = useState('color')
   const [selectedColor, setSelectedColor] = useState(null)  // key string 또는 hex
   const [memoText, setMemoText]       = useState('')
   const [customColors, setCustomColors] = useState(loadCustomColors)
+  const [stagedColor, setStagedColor] = useState(null)  // 커스텀 색상 확인 대기 중
   const [dragPos, setDragPos]         = useState(null)  // {top, left} — 드래그 후 고정 위치
   const ref       = useRef(null)
   const inputRef  = useRef(null)  // <input type="color">
@@ -34,13 +39,13 @@ export default function SelectionToolbar({
   useEffect(() => {
     function handlePointerDown(e) {
       if (ref.current && !ref.current.contains(e.target)) {
-        onClearPending?.()
+        // 외부 클릭: toolbar만 닫기, pendingGroups는 보존
         onClose()
       }
     }
     document.addEventListener('pointerdown', handlePointerDown)
     return () => document.removeEventListener('pointerdown', handlePointerDown)
-  }, [onClose, onClearPending])
+  }, [onClose])
 
   if (!viewportRect) return null
 
@@ -49,7 +54,7 @@ export default function SelectionToolbar({
     : null
 
   const memoBoxHeight  = 140
-  const colorBarHeight = pendingCount > 0 ? 80 : 50
+  const colorBarHeight = pendingCount > 0 ? 80 + pendingCount * 26 : 50
   const flipDown = viewportRect.top < (phase === 'memo' ? memoBoxHeight : colorBarHeight) + 8
   const computedTop  = flipDown
     ? viewportRect.bottom + 8
@@ -88,11 +93,20 @@ export default function SelectionToolbar({
     setPhase('memo')
   }
 
-  function handleCustomColorPick(e) {
-    const hex = e.target.value
-    const next = saveCustomColor(hex, customColors)
+  function handleCustomColorChange(e) {
+    setStagedColor(e.target.value)
+  }
+
+  function handleConfirmCustomColor() {
+    if (!stagedColor) return
+    const next = saveCustomColor(stagedColor, customColors)
     setCustomColors(next)
-    handleColorSelect(hex)
+    handleColorSelect(stagedColor)
+    setStagedColor(null)
+  }
+
+  function handleCancelCustomColor() {
+    setStagedColor(null)
   }
 
   function handleRemoveCustom(e, hex) {
@@ -122,11 +136,27 @@ export default function SelectionToolbar({
 
       {phase === 'color' ? (
         <div style={styles.colorPhase}>
-          {/* 누적 선택 배지 */}
+          {/* 누적 선택 목록 (개별 제거 가능) */}
           {pendingCount > 0 && (
-            <div style={styles.pendingRow}>
-              <span style={styles.pendingBadge}>{pendingCount}개 선택됨</span>
-              <button style={styles.pendingClear} onClick={() => { onClearPending?.(); onClose() }}>×</button>
+            <div style={styles.pendingSection}>
+              <div style={styles.pendingHeader}>
+                <span style={styles.pendingBadge}>{pendingCount}개 누적됨</span>
+                <button style={styles.pendingClear} onClick={() => { onClearPending?.(); onClose() }} title="전체 초기화">모두 지우기</button>
+              </div>
+              {pendingGroups.map((g, i) => (
+                <div key={i} style={styles.pendingItem}>
+                  <span style={styles.pendingItemText} title={g.text}>
+                    {i + 1}. {g.text.length > 22 ? g.text.slice(0, 22) + '…' : g.text}
+                  </span>
+                  <button
+                    style={styles.pendingItemRemove}
+                    onClick={() => onRemovePending?.(i)}
+                    title="이 항목 제거"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
           )}
 
@@ -161,20 +191,35 @@ export default function SelectionToolbar({
             ))}
 
             {/* + 커스텀 색 추가 */}
-            <button
-              title="색상 추가"
-              style={styles.addBtn}
-              onClick={() => inputRef.current?.click()}
-            >
-              +
-            </button>
+            {!stagedColor && (
+              <button
+                title="색상 추가"
+                style={styles.addBtn}
+                onClick={() => { setStagedColor('#FF5733'); inputRef.current?.click() }}
+              >
+                +
+              </button>
+            )}
             <input
               ref={inputRef}
               type="color"
               style={styles.hiddenInput}
-              defaultValue="#FF5733"
-              onChange={handleCustomColorPick}
+              value={stagedColor ?? '#FF5733'}
+              onChange={handleCustomColorChange}
             />
+
+            {/* 커스텀 색상 스테이징 확인 UI */}
+            {stagedColor && (
+              <>
+                <div
+                  style={{ ...styles.colorBtn, background: stagedColor, border: '2px solid rgba(255,255,255,0.7)', cursor: 'default' }}
+                  title={`선택 중: ${stagedColor}`}
+                  onClick={() => inputRef.current?.click()}
+                />
+                <button style={styles.confirmBtn} onClick={handleConfirmCustomColor} title="이 색상으로 확정">✓</button>
+                <button style={styles.cancelCustomBtn} onClick={handleCancelCustomColor} title="취소">✗</button>
+              </>
+            )}
 
             <span style={styles.divider} />
 
@@ -187,14 +232,27 @@ export default function SelectionToolbar({
               💡
             </button>
 
+            {/* 영역 이미지 → Chat */}
+            {isRegion && onSendImageToChat && (
+              <button
+                title="이미지로 Chat 전송"
+                style={styles.imgChatBtn}
+                onClick={() => { onSendImageToChat?.() }}
+              >
+                📷
+              </button>
+            )}
+
             {/* 추가 선택 */}
-            <button
-              title="현재 선택을 유지하고 더 선택"
-              style={styles.addSelBtn}
-              onClick={handleAddSelection}
-            >
-              +선택
-            </button>
+            {!isRegion && (
+              <button
+                title="현재 선택을 유지하고 더 선택"
+                style={styles.addSelBtn}
+                onClick={handleAddSelection}
+              >
+                +선택
+              </button>
+            )}
           </div>
         </div>
       ) : (
@@ -245,23 +303,57 @@ const styles = {
     flexDirection: 'column',
     gap: 0,
   },
-  pendingRow: {
+  pendingSection: {
+    borderBottom: '1px solid rgba(255,255,255,0.1)',
+    padding: '6px 12px 6px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 3,
+  },
+  pendingHeader: {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: '6px 12px 4px',
-    borderBottom: '1px solid rgba(255,255,255,0.1)',
+    marginBottom: 3,
   },
   pendingBadge: {
-    fontSize: 11,
+    fontSize: 10,
     color: '#a78bfa',
     fontWeight: 700,
+    textTransform: 'uppercase',
   },
   pendingClear: {
-    fontSize: 15,
-    color: '#666',
+    fontSize: 10,
+    color: '#888',
     cursor: 'pointer',
     lineHeight: 1,
+    background: 'transparent',
+    border: 'none',
+  },
+  pendingItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    background: 'rgba(255,255,255,0.07)',
+    borderRadius: 4,
+    padding: '3px 6px',
+  },
+  pendingItemText: {
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.65)',
+    flex: 1,
+    overflow: 'hidden',
+    whiteSpace: 'nowrap',
+  },
+  pendingItemRemove: {
+    fontSize: 13,
+    color: '#777',
+    cursor: 'pointer',
+    lineHeight: 1,
+    background: 'transparent',
+    border: 'none',
+    flexShrink: 0,
+    padding: '0 2px',
   },
   colorRow: {
     display: 'flex',
@@ -321,6 +413,28 @@ const styles = {
     opacity: 0,
     pointerEvents: 'none',
   },
+  confirmBtn: {
+    fontSize: 13,
+    color: '#5CCC7F',
+    cursor: 'pointer',
+    padding: '0 2px',
+    background: 'transparent',
+    border: 'none',
+    lineHeight: 1,
+    fontWeight: 700,
+    flexShrink: 0,
+  },
+  cancelCustomBtn: {
+    fontSize: 13,
+    color: '#ff6b6b',
+    cursor: 'pointer',
+    padding: '0 2px',
+    background: 'transparent',
+    border: 'none',
+    lineHeight: 1,
+    fontWeight: 700,
+    flexShrink: 0,
+  },
   divider: {
     width: 1,
     height: 18,
@@ -329,6 +443,16 @@ const styles = {
   },
   aiBtn: {
     fontSize: 16,
+    cursor: 'pointer',
+    padding: '0 2px',
+    lineHeight: 1,
+    background: 'transparent',
+    border: 'none',
+    color: '#fff',
+    flexShrink: 0,
+  },
+  imgChatBtn: {
+    fontSize: 15,
     cursor: 'pointer',
     padding: '0 2px',
     lineHeight: 1,

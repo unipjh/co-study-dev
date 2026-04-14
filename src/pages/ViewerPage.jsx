@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { doc, getDoc } from 'firebase/firestore'
 import { ref, getBlob } from 'firebase/storage'
@@ -11,6 +11,10 @@ import PageThumbnailPanel from '../components/Canvas/PageThumbnailPanel'
 import SidePanel from '../components/Sidebar/SidePanel'
 import useAnnotation from '../hooks/useAnnotation'
 
+const SIDEBAR_MIN = 180
+const SIDEBAR_MAX = 600
+const SIDEBAR_DEFAULT = 300
+
 export default function ViewerPage() {
   const { docId }    = useParams()
   const navigate     = useNavigate()
@@ -22,8 +26,44 @@ export default function ViewerPage() {
   const [contextAnnotations, setContextAnnotations]  = useState([])
   const [thumbnailOpen,      setThumbnailOpen]       = useState(false)
   const [loadError,          setLoadError]           = useState(null)
+  const [sidebarWidth,       setSidebarWidth]        = useState(SIDEBAR_DEFAULT)
 
   const { annotations, remove: removeAnnotation } = useAnnotation(docId)
+
+  // ── 사이드바 너비 드래그 리사이즈 ─────────────────────────────
+  const isDraggingRef = useRef(false)
+  const dragStartXRef = useRef(0)
+  const dragStartWidthRef = useRef(SIDEBAR_DEFAULT)
+
+  const handleResizerMouseDown = useCallback((e) => {
+    isDraggingRef.current = true
+    dragStartXRef.current = e.clientX
+    dragStartWidthRef.current = sidebarWidth
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    e.preventDefault()
+  }, [sidebarWidth])
+
+  useEffect(() => {
+    function onMouseMove(e) {
+      if (!isDraggingRef.current) return
+      const delta = dragStartXRef.current - e.clientX
+      const newWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, dragStartWidthRef.current + delta))
+      setSidebarWidth(newWidth)
+    }
+    function onMouseUp() {
+      if (!isDraggingRef.current) return
+      isDraggingRef.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+    return () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [])
 
   useEffect(() => {
     if (!uid) return
@@ -88,19 +128,29 @@ export default function ViewerPage() {
           sidebarOpen={sidebarOpen}
         />
         {sidebarOpen && (
-          <SidePanel
-            docId={docId}
-            annotations={annotations}
-            onDeleteAnnotation={removeAnnotation}
-            onScrollToAnnotation={(ann) => {
-              useDocumentStore.getState().setCurrentPage(ann.pageIndex + 1)
-            }}
-            contextAnnotations={contextAnnotations}
-            onClearContext={handleClearContext}
-            onSendToChat={handleSendToChat}
-            activeTab={activeTab}
-            onTabChange={setActiveTab}
-          />
+          <>
+            {/* 드래그 리사이즈 핸들 */}
+            <div
+              style={styles.resizer}
+              onMouseDown={handleResizerMouseDown}
+              title="드래그하여 너비 조정"
+            />
+            <div style={{ ...styles.sidebarWrapper, width: sidebarWidth }}>
+              <SidePanel
+                docId={docId}
+                annotations={annotations}
+                onDeleteAnnotation={removeAnnotation}
+                onScrollToAnnotation={(ann) => {
+                  useDocumentStore.getState().setCurrentPage(ann.pageIndex + 1)
+                }}
+                contextAnnotations={contextAnnotations}
+                onClearContext={handleClearContext}
+                onSendToChat={handleSendToChat}
+                activeTab={activeTab}
+                onTabChange={setActiveTab}
+              />
+            </div>
+          </>
         )}
       </div>
     </div>
@@ -110,6 +160,22 @@ export default function ViewerPage() {
 const styles = {
   root: { height: '100%', display: 'flex', flexDirection: 'column' },
   body: { flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' },
+  resizer: {
+    width: 5,
+    flexShrink: 0,
+    cursor: 'col-resize',
+    background: 'transparent',
+    position: 'relative',
+    zIndex: 5,
+    transition: 'background 0.15s',
+    '&:hover': { background: 'rgba(99,102,241,0.25)' },
+  },
+  sidebarWrapper: {
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
   error: {
     height: '100%', display: 'flex', flexDirection: 'column',
     alignItems: 'center', justifyContent: 'center', gap: 16,

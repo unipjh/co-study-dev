@@ -38,7 +38,7 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
     const contextText = hasContext
       ? contextAnnotations.map((a, i) => {
           const isRegion = a.type === 'region'
-          const label = isRegion ? '[영역 선택]' : `"${a.text}"`
+          const label = isRegion ? '[영역 선택 (이미지 첨부)]' : `"${a.text}"`
           const memo  = a.content ? `\n   [메모] ${a.content}` : ''
           return `${i + 1}. ${label}${memo}`
         }).join('\n')
@@ -46,6 +46,11 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
     const fullPrompt = contextText
       ? `[참고 맥락:\n${contextText}]\n\n${text}`
       : text
+
+    // 이미지 파트 수집 (영역 선택으로 보낸 이미지)
+    const imageParts = contextAnnotations
+      .filter((a) => a.imageData)
+      .map((a) => ({ inlineData: { data: a.imageData, mimeType: 'image/png' } }))
 
     await addMessage('user', text, contextText)
 
@@ -68,6 +73,7 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
         setIsStreaming(false)
         setStreamingText('')
       },
+      imageParts,
     )
   }
 
@@ -96,9 +102,16 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
             {contextAnnotations.map((ann) => (
               <div key={ann.id} style={styles.chip}>
                 <span style={{ ...styles.colorDot, background: getDisplayColor(ann.color) }} />
+                {ann.imageData && (
+                  <img
+                    src={`data:image/png;base64,${ann.imageData}`}
+                    style={styles.chipThumb}
+                    alt="영역 이미지"
+                  />
+                )}
                 <span style={styles.chipText}>
                   {ann.type === 'region'
-                    ? ann.content ? `[영역] ${ann.content}` : '[영역 선택 — 메모 없음]'
+                    ? ann.imageData ? '[이미지 영역]' : ann.content ? `[영역] ${ann.content}` : '[영역 선택 — 메모 없음]'
                     : `"${ann.text}"${ann.content ? ` / ${ann.content}` : ''}`}
                 </span>
                 <button
@@ -132,7 +145,7 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
       ) : (
         <div style={styles.emptyContext}>
           <p style={styles.emptyContextHint}>
-            하이라이트 클릭 → '맥락 추가'로<br />맥락 기반 대화를 시작할 수 있습니다
+            아래 입력창에서 바로 질문하거나,<br />하이라이트 → '맥락 추가'로 맥락 기반 대화를 시작하세요
           </p>
         </div>
       )}
@@ -165,7 +178,7 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
           style={styles.input}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={noDoc ? 'PDF를 먼저 열어주세요' : '질문을 입력하세요… (Shift+Enter: 줄바꿈)'}
+          placeholder={noDoc ? 'PDF를 먼저 열어주세요' : hasContext ? '맥락 기반으로 질문하거나 자유롭게 대화하세요… (Enter: 전송)' : '질문을 입력하세요… (Enter: 전송, Shift+Enter: 줄바꿈)'}
           disabled={noDoc || isStreaming}
           rows={2}
           onKeyDown={(e) => {
@@ -251,6 +264,10 @@ const styles = {
     WebkitBoxOrient: 'vertical',
     overflow: 'hidden',
   },
+  chipThumb: {
+    width: 36, height: 24, objectFit: 'cover', borderRadius: 3,
+    border: '1px solid #e0e0ff', flexShrink: 0,
+  },
   chipClose: { fontSize: 14, color: '#aaa', cursor: 'pointer', lineHeight: 1, padding: '0 2px', flexShrink: 0 },
   quickActions: { display: 'flex', gap: 6 },
   quickBtn: {
@@ -260,7 +277,7 @@ const styles = {
   },
   // 맥락 없을 때 힌트
   emptyContext: {
-    padding: '10px 14px',
+    padding: '8px 14px',
     background: '#f9f9f9',
     borderBottom: '1px solid #f0f0f0',
     flexShrink: 0,
