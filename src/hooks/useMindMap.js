@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore'
+import { collection, doc, onSnapshot, setDoc, deleteDoc, getDocs } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import useAuthStore from '../store/authStore'
 import useDocumentStore from '../store/documentStore'
@@ -8,6 +8,29 @@ import { extractTextFromPdf } from '../lib/pdfParser'
 
 const MAX_TEXT_CHARS = 18000 // 토큰 한도 대비 텍스트 상한
 const MAX_MAPS = 5           // 문서당 저장 마인드맵 최대 수
+
+/**
+ * Firestore 색인 청크에서 텍스트 조합
+ * 없으면 null 반환 → 호출부에서 fallback 처리
+ */
+async function loadChunkTexts(uid, docId, pageIndices = null) {
+  const col  = collection(db, 'users', uid, 'documents', docId, 'embeddings')
+  const snap = await getDocs(col)
+  if (snap.empty) return null
+
+  let chunks = snap.docs.map((d) => d.data())
+  chunks.sort((a, b) => a.pageIndex - b.pageIndex)
+
+  if (pageIndices) {
+    const indexSet = new Set(pageIndices)
+    chunks = chunks.filter((c) => indexSet.has(c.pageIndex))
+    if (chunks.length === 0) return null
+  }
+
+  return chunks
+    .map((c) => `[페이지 ${c.pageIndex + 1}]\n${c.text}`)
+    .join('\n\n')
+}
 
 function mapsCol(uid, docId) {
   return collection(db, 'users', uid, 'mindmaps', docId, 'maps')
@@ -43,25 +66,29 @@ export default function useMindMap(docId) {
   }, [docId, uid])
 
   /**
-   * 텍스트 준비: scope에 따라 PDF에서 추출
+   * 텍스트 준비: 색인 청크 우선 사용, 없으면 PDF 재파싱
    */
   async function prepareText(scope) {
-    if (!pdfBlob) throw new Error('PDF가 로드되지 않았습니다.')
+    const pageIndices = scope === 'page'
+      ? [currentPage - 1]
+      : null  // null = 전체
 
-    let pageIndices
-    if (scope === 'page') {
-      pageIndices = [currentPage - 1]
-    } else {
-      // 전체 (최대 MAX_MAPS 페이지 분량 텍스트로 제한)
-      pageIndices = Array.from({ length: numPages }, (_, i) => i)
+    // ── 1순위: Firestore 색인 청크 재활용 ──────────────────────────
+    const fromChunks = await loadChunkTexts(uid, docId, pageIndices)
+    if (fromChunks) {
+      return fromChunks.length > MAX_TEXT_CHARS
+        ? fromChunks.slice(0, MAX_TEXT_CHARS) + '\n\n[이하 생략됨]'
+        : fromChunks
     }
 
-    const pages = await extractTextFromPdf(pdfBlob, pageIndices)
+    // ── 2순위: fallback — PDF 직접 파싱 ────────────────────────────
+    if (!pdfBlob) throw new Error('PDF가 로드되지 않았습니다.')
+    const indices = pageIndices ?? Array.from({ length: numPages }, (_, i) => i)
+    const pages = await extractTextFromPdf(pdfBlob, indices)
     const combined = pages
       .map((p) => `[페이지 ${p.pageIndex + 1}]\n${p.text}`)
       .join('\n\n')
 
-    // 토큰 초과 방지: 상한 초과 시 앞부분 우선
     return combined.length > MAX_TEXT_CHARS
       ? combined.slice(0, MAX_TEXT_CHARS) + '\n\n[이하 생략됨]'
       : combined

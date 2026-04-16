@@ -21,14 +21,29 @@ export default function ViewerPage() {
   const { setStorageDoc, pdfBlob, numPages, currentPage, setCurrentPage } = useDocumentStore()
   const uid = useAuthStore((s) => s.user?.uid)
 
-  const [sidebarOpen,        setSidebarOpen]        = useState(true)
+  const [sidebarOpen,        setSidebarOpen]        = useState(() => window.innerWidth >= 700)
   const [activeTab,          setActiveTab]           = useState('chat')
   const [contextAnnotations, setContextAnnotations]  = useState([])
   const [thumbnailOpen,      setThumbnailOpen]       = useState(false)
   const [loadError,          setLoadError]           = useState(null)
   const [sidebarWidth,       setSidebarWidth]        = useState(SIDEBAR_DEFAULT)
+  const [viewportWidth,      setViewportWidth]       = useState(() => window.innerWidth)
+  const prevSidebarWidthRef = useRef(SIDEBAR_DEFAULT)
 
   const { annotations, remove: removeAnnotation } = useAnnotation(docId)
+  const isMobile = viewportWidth < 700
+
+  // 마인드맵 탭 전환 시 사이드바 5:5 자동 조정
+  useEffect(() => {
+    if (activeTab === 'mindmap') {
+      prevSidebarWidthRef.current = sidebarWidth
+      setSidebarWidth(Math.floor(window.innerWidth / 2))
+    } else {
+      setSidebarWidth(prevSidebarWidthRef.current)
+    }
+  // sidebarWidth는 의존성에서 제외 (전환 시점의 값만 스냅샷)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab])
 
   // ── 사이드바 너비 드래그 리사이즈 ─────────────────────────────
   const isDraggingRef = useRef(false)
@@ -44,6 +59,14 @@ export default function ViewerPage() {
     e.preventDefault()
   }, [sidebarWidth])
 
+  const handleResizerTouchStart = useCallback((e) => {
+    if (e.touches.length !== 1) return
+    isDraggingRef.current = true
+    dragStartXRef.current = e.touches[0].clientX
+    dragStartWidthRef.current = sidebarWidth
+    document.body.style.userSelect = 'none'
+  }, [sidebarWidth])
+
   useEffect(() => {
     function onMouseMove(e) {
       if (!isDraggingRef.current) return
@@ -57,12 +80,34 @@ export default function ViewerPage() {
       document.body.style.cursor = ''
       document.body.style.userSelect = ''
     }
+    function onTouchMove(e) {
+      if (!isDraggingRef.current) return
+      const delta = dragStartXRef.current - e.touches[0].clientX
+      const newWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, dragStartWidthRef.current + delta))
+      setSidebarWidth(newWidth)
+    }
+    function onTouchEnd() {
+      if (!isDraggingRef.current) return
+      isDraggingRef.current = false
+      document.body.style.userSelect = ''
+    }
     document.addEventListener('mousemove', onMouseMove)
     document.addEventListener('mouseup', onMouseUp)
+    document.addEventListener('touchmove', onTouchMove, { passive: false })
+    document.addEventListener('touchend',  onTouchEnd)
     return () => {
       document.removeEventListener('mousemove', onMouseMove)
       document.removeEventListener('mouseup', onMouseUp)
+      document.removeEventListener('touchmove', onTouchMove)
+      document.removeEventListener('touchend',  onTouchEnd)
     }
+  }, [])
+
+  // viewport 너비 추적 (모바일 레이아웃 전환용)
+  useEffect(() => {
+    function onResize() { setViewportWidth(window.innerWidth) }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
   }, [])
 
   useEffect(() => {
@@ -101,8 +146,6 @@ export default function ViewerPage() {
   return (
     <div style={styles.root}>
       <TopToolbar
-        onSidebarToggle={() => setSidebarOpen((v) => !v)}
-        sidebarOpen={sidebarOpen}
         onHome={() => navigate('/')}
         onPageLabelClick={() => setThumbnailOpen((v) => !v)}
       />
@@ -126,16 +169,27 @@ export default function ViewerPage() {
           activeTab={activeTab}
           onTabChange={setActiveTab}
           sidebarOpen={sidebarOpen}
+          onSidebarToggle={() => setSidebarOpen((v) => !v)}
         />
         {sidebarOpen && (
           <>
-            {/* 드래그 리사이즈 핸들 */}
-            <div
-              style={styles.resizer}
-              onMouseDown={handleResizerMouseDown}
-              title="드래그하여 너비 조정"
-            />
-            <div style={{ ...styles.sidebarWrapper, width: sidebarWidth }}>
+            {/* 모바일: 반투명 배경 (클릭 시 닫기) */}
+            {isMobile && (
+              <div style={styles.backdrop} onClick={() => setSidebarOpen(false)} />
+            )}
+            {/* 데스크탑만 리사이즈 핸들 */}
+            {!isMobile && (
+              <div
+                style={styles.resizer}
+                onMouseDown={handleResizerMouseDown}
+                onTouchStart={handleResizerTouchStart}
+                title="드래그하여 너비 조정"
+              />
+            )}
+            <div style={isMobile
+              ? { ...styles.sidebarWrapperMobile, width: Math.min(sidebarWidth, Math.round(viewportWidth * 0.85)) }
+              : { ...styles.sidebarWrapper, width: sidebarWidth }
+            }>
               <SidePanel
                 docId={docId}
                 annotations={annotations}
@@ -175,6 +229,21 @@ const styles = {
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
+  },
+  sidebarWrapperMobile: {
+    position: 'absolute',
+    right: 0, top: 0, bottom: 0,
+    zIndex: 20,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+    boxShadow: '-4px 0 24px rgba(0,0,0,0.18)',
+  },
+  backdrop: {
+    position: 'absolute',
+    inset: 0,
+    background: 'rgba(0,0,0,0.35)',
+    zIndex: 19,
   },
   error: {
     height: '100%', display: 'flex', flexDirection: 'column',

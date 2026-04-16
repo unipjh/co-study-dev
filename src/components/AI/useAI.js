@@ -33,6 +33,55 @@ function getGenAI() {
   return new GoogleGenerativeAI(apiKey)
 }
 
+const EMBED_MODEL = 'models/gemini-embedding-2-preview'
+
+function getEmbedApiKey() {
+  const apiKey = import.meta.env.VITE_GEMINI_API_KEY
+  if (!apiKey) throw new Error('.env에 VITE_GEMINI_API_KEY를 설정해주세요.')
+  return apiKey
+}
+
+/**
+ * 단일 텍스트 임베딩 (쿼리 검색용)
+ * @param {string} text
+ * @returns {Promise<number[]>}
+ */
+export async function embedText(text) {
+  const apiKey = getEmbedApiKey()
+  const url = `https://generativelanguage.googleapis.com/v1beta/${EMBED_MODEL}:embedContent?key=${apiKey}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content: { parts: [{ text }] } }),
+  })
+  if (!res.ok) throw new Error(`embedText 오류: ${await res.text()}`)
+  const data = await res.json()
+  return data.embedding.values
+}
+
+/**
+ * 배치 임베딩 — 여러 텍스트를 한 번의 API 호출로 처리
+ * @param {string[]} texts
+ * @returns {Promise<number[][]>}
+ */
+export async function batchEmbedTexts(texts) {
+  const apiKey = getEmbedApiKey()
+  const url = `https://generativelanguage.googleapis.com/v1beta/${EMBED_MODEL}:batchEmbedContents?key=${apiKey}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      requests: texts.map((text) => ({
+        model: EMBED_MODEL,
+        content: { parts: [{ text }] },
+      })),
+    }),
+  })
+  if (!res.ok) throw new Error(`batchEmbedTexts 오류: ${await res.text()}`)
+  const data = await res.json()
+  return data.embeddings.map((e) => e.values)
+}
+
 // 빠른 단발 요청 (explain / quiz) — 저비용 경량 모델
 function getFlashLiteModel() {
   return getGenAI().getGenerativeModel({
@@ -56,7 +105,8 @@ export default function useAI() {
   const abortRef = useRef(null)
 
   // 단발 요청 (설명 / 퀴즈 생성) — Flash-Lite
-  const ask = useCallback(async (selectedText, functionKey) => {
+  // ragBlock: 선택사항 — RAG 검색 결과를 프롬프트 앞에 주입
+  const ask = useCallback(async (selectedText, functionKey, ragBlock = '') => {
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
@@ -65,7 +115,7 @@ export default function useAI() {
     setError(null)
     setIsStreaming(true)
 
-    const prompt = (QUICK_PROMPTS[functionKey] ?? QUICK_PROMPTS.explain)(selectedText)
+    const prompt = ragBlock + (QUICK_PROMPTS[functionKey] ?? QUICK_PROMPTS.explain)(selectedText)
 
     try {
       const model = getFlashLiteModel()

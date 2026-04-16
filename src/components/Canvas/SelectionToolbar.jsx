@@ -88,6 +88,32 @@ export default function SelectionToolbar({
     document.addEventListener('mouseup', onUp)
   }
 
+  function startTouchDrag(e) {
+    if (e.touches.length !== 1) return
+    const touch  = e.touches[0]
+    const startX = touch.clientX
+    const startY = touch.clientY
+    const initLeft = dragPos
+      ? dragPos.left
+      : computedLeft - (ref.current?.offsetWidth ?? 0) / 2
+    const initTop  = dragPos ? dragPos.top : computedTop
+
+    function onMove(ev) {
+      ev.preventDefault()
+      const t = ev.touches[0]
+      setDragPos({
+        top:  initTop  + t.clientY - startY,
+        left: initLeft + t.clientX - startX,
+      })
+    }
+    function onUp() {
+      document.removeEventListener('touchmove', onMove)
+      document.removeEventListener('touchend', onUp)
+    }
+    document.addEventListener('touchmove', onMove, { passive: false })
+    document.addEventListener('touchend', onUp)
+  }
+
   function handleColorSelect(colorValue) {
     setSelectedColor(colorValue)
     setPhase('memo')
@@ -132,7 +158,7 @@ export default function SelectionToolbar({
       onPointerDown={(e) => e.preventDefault()}
     >
       {/* 드래그 핸들 */}
-      <div style={styles.dragHandle} onMouseDown={startDrag} title="드래그하여 이동">⠿</div>
+      <div style={styles.dragHandle} onMouseDown={startDrag} onTouchStart={startTouchDrag} title="드래그하여 이동">⠿</div>
 
       {phase === 'color' ? (
         <div style={styles.colorPhase}>

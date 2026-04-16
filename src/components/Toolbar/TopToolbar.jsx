@@ -1,6 +1,6 @@
 import useDocumentStore from '../../store/documentStore'
 
-export default function TopToolbar({ onSidebarToggle, sidebarOpen, onHome, onPageLabelClick }) {
+export default function TopToolbar({ onHome, onPageLabelClick }) {
   const {
     pdfName, currentPage, numPages, zoomLevel, viewMode,
     setCurrentPage, setZoomLevel,
@@ -48,11 +48,7 @@ export default function TopToolbar({ onSidebarToggle, sidebarOpen, onHome, onPag
         )}
       </div>
 
-      <div style={styles.right}>
-        <button style={styles.iconBtn} onClick={onSidebarToggle}>
-          {sidebarOpen ? '패널 닫기' : '패널 열기'}
-        </button>
-      </div>
+      <div style={styles.right} />
     </div>
   )
 }
