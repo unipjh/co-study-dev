@@ -21,7 +21,7 @@ import useDocumentStore from '../../store/documentStore'
 export default function ChatPanel({ docId, contextAnnotations = [], onClearContext }) {
   const { messages, addMessage } = useChat(docId)
   const { chat } = useAI()
-  const { indexed, indexing, indexProgress, indexTotal, buildIndex, search } = useDocumentIndex(docId)
+  const { indexed, indexing, indexProgress, indexTotal, indexError, buildIndex, search } = useDocumentIndex(docId)
 
   const [input, setInput]             = useState('')
   const [streamingText, setStreamingText] = useState('')
@@ -136,6 +136,13 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
           <span style={styles.indexLabel}>
             문서 색인 생성 중… {indexProgress}/{indexTotal}p
           </span>
+        </div>
+      )}
+      {/* 색인 실패 배너 */}
+      {indexError && !indexing && (
+        <div style={styles.indexErrorBanner}>
+          <span style={styles.indexErrorLabel}>색인 실패: {indexError}</span>
+          <button style={styles.indexRetryBtn} onClick={buildIndex}>재시도</button>
         </div>
       )}
 
@@ -365,6 +372,31 @@ const styles = {
     fontSize: 10,
     color: '#6366f1',
     fontWeight: 500,
+  },
+  indexErrorBanner: {
+    padding: '7px 14px',
+    background: '#fff0f0',
+    borderBottom: '1px solid #ffd5d5',
+    flexShrink: 0,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  indexErrorLabel: {
+    fontSize: 11,
+    color: '#c00',
+    flex: 1,
+  },
+  indexRetryBtn: {
+    fontSize: 11,
+    padding: '3px 8px',
+    borderRadius: 5,
+    background: '#c00',
+    color: '#fff',
+    cursor: 'pointer',
+    flexShrink: 0,
+    fontWeight: 600,
   },
   // 맥락 배너
   contextBanner: {

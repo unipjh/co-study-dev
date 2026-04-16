@@ -112,6 +112,9 @@ export default function ViewerPage() {
 
   useEffect(() => {
     if (!uid) return
+    // docId 바뀌면 이전 blob을 즉시 제거 — useDocumentIndex가 stale blob으로 색인하는 것을 방지
+    setStorageDoc({ blob: null, name: null })
+    setLoadError(null)
     async function loadDoc() {
       const snap = await getDoc(doc(db, 'users', uid, 'documents', docId))
       if (!snap.exists()) { setLoadError('문서를 찾을 수 없습니다'); return }
