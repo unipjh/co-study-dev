@@ -13,7 +13,7 @@ const useDocumentStore = create((set) => ({
 
   // Storage 문서 세팅 (ViewerPage에서 호출)
   setStorageDoc: ({ blob, name }) =>
-    set({ pdfBlob: blob, pdfName: name, currentPage: 1, numPages: 0 }),
+    set({ pdfBlob: blob, pdfName: name, currentPage: 1, numPages: 0, selectionMode: 'text' }),
   setNumPages: (n) => set({ numPages: n }),
   setCurrentPage: (page) => set({ currentPage: page }),
   setZoomLevel: (level) => set({ zoomLevel: Math.min(2.0, Math.max(0.5, level)) }),

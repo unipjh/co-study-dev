@@ -5,6 +5,8 @@ import useAnnotationStore from '../store/annotationStore'
 import useAuthStore from '../store/authStore'
 import { generateId, isOverlapping } from '../lib/selectionUtils'
 
+const EMPTY_ANNOTATIONS = []
+
 function itemsCol(uid, docId) {
   return collection(db, 'users', uid, 'annotations', docId, 'items')
 }
@@ -24,8 +26,11 @@ function itemsCol(uid, docId) {
  */
 export default function useAnnotation(docId) {
   const uid = useAuthStore((s) => s.user?.uid)
-  const { loadAnnotations, updateAnnotation, removeAnnotation, getAnnotations } =
+  const { loadAnnotations, updateAnnotation, removeAnnotation } =
     useAnnotationStore()
+
+  // stable selector: docId가 같으면 동일 배열 레퍼런스 유지 (무한 루프 방지)
+  const annotations = useAnnotationStore((s) => s.annotations[docId] ?? EMPTY_ANNOTATIONS)
 
   useEffect(() => {
     if (!docId || !uid) return
@@ -35,8 +40,6 @@ export default function useAnnotation(docId) {
     })
     return unsub
   }, [docId, uid])
-
-  const annotations = getAnnotations(docId)
 
   /**
    * annotation 추가
@@ -74,7 +77,7 @@ export default function useAnnotation(docId) {
       }),
     }
 
-    const current     = getAnnotations(docId)
+    const current     = useAnnotationStore.getState().annotations[docId] ?? []
     const overlapping = current.filter((a) => isOverlapping(a, newItem))
     await Promise.all(overlapping.map((a) => deleteDoc(doc(itemsCol(uid, docId), a.id))))
 
@@ -84,7 +87,7 @@ export default function useAnnotation(docId) {
 
   async function update(id, patch) {
     if (!uid) return
-    const current = getAnnotations(docId).find((a) => a.id === id)
+    const current = (useAnnotationStore.getState().annotations[docId] ?? []).find((a) => a.id === id)
     if (!current) return
     const updated = { ...current, ...patch }
     await setDoc(doc(itemsCol(uid, docId), id), updated)

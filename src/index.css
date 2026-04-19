@@ -24,6 +24,10 @@ button {
   50% { opacity: 0; }
 }
 
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* react-pdf TextLayer: 선택 시 폰트 깜빡임 완화 */
 .react-pdf__Page__textContent {
   mix-blend-mode: multiply;

@@ -3,11 +3,33 @@ import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
-import useAI from '../AI/useAI'
+import useAI, { buildRagSystemInstruction, NO_CHUNK_FALLBACK } from '../AI/useAI'
 import useChat from '../../hooks/useChat'
 import useDocumentIndex from '../../hooks/useDocumentIndex'
 import { getDisplayColor } from '../../lib/colorUtils'
 import useDocumentStore from '../../store/documentStore'
+
+
+/**
+ * 허용되지 않은 페이지 번호 인용을 제거 (할루시네이션 사후 방어)
+ * allowedPageNums: Set<number> (1-based)
+ */
+function stripHallucinatedRefs(text, allowedPageNums) {
+  return text.replace(/\[p\.(\d+)\]/g, (match, num) =>
+    allowedPageNums.has(Number(num)) ? match : ''
+  )
+}
+
+/**
+ * semantic 검색 결과 + 강제 포함 청크를 pageIndex 기준으로 병합·중복제거
+ */
+function mergeChunks(semanticChunks, ...extras) {
+  const map = new Map(semanticChunks.map((c) => [c.pageIndex, c]))
+  for (const c of extras) {
+    if (c && !map.has(c.pageIndex)) map.set(c.pageIndex, c)
+  }
+  return [...map.values()].sort((a, b) => a.pageIndex - b.pageIndex)
+}
 
 /**
  * Chat 탭 패널
@@ -18,10 +40,10 @@ import useDocumentStore from '../../store/documentStore'
  *
  * @param {{ docId, contextAnnotations, onClearContext }} props
  */
-export default function ChatPanel({ docId, contextAnnotations = [], onClearContext }) {
+export default function ChatPanel({ docId, contextAnnotations = [], onClearContext, currentPage = 0 }) {
   const { messages, addMessage } = useChat(docId)
   const { chat } = useAI()
-  const { indexed, indexing, indexProgress, indexTotal, indexError, buildIndex, search } = useDocumentIndex(docId)
+  const { indexed, indexing, indexProgress, indexTotal, chunkCount, checkDone, indexError, pdfReady, buildIndex, search, getChunkByPage } = useDocumentIndex(docId)
 
   const [input, setInput]             = useState('')
   const [streamingText, setStreamingText] = useState('')
@@ -43,19 +65,36 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
     setStreamingText('')
 
     try {
-      // ── RAG: 관련 페이지 검색 → 프롬프트 앞에 주입 ──────────────
+      // ── RAG: 의미 검색 ────────────────────────────────────────────
       const topChunks = await search(text)
 
-      const availablePages = topChunks.map((c) => `p.${c.pageIndex + 1}`).join(', ')
-      const ragBlock = topChunks.length > 0
-        ? `[문서 참고 자료 — 검색된 관련 페이지]\n` +
-          topChunks.map((c) => `(p.${c.pageIndex + 1}) ${c.text}`).join('\n') +
-          '\n\n[답변 지침]\n' +
-          `- 위 참고 자료(${availablePages})에 있는 내용을 근거로 답변하세요.\n` +
-          `- [p.숫자] 인용은 위 목록(${availablePages})에 실제로 존재하는 페이지만 사용하세요. 없는 페이지 번호는 절대 만들지 마세요.\n` +
-          '- 참고 자료에서 찾을 수 없는 내용은 "교안에서 확인할 수 없는 내용입니다"라고 명시하세요.\n' +
-          '- 각 문단 끝에 참고한 페이지를 [p.숫자] 형식으로 표시하세요.\n---\n'
+      // ── 강제 포함: 현재 보고 있는 페이지 ─────────────────────────
+      const currentPageChunk = currentPage > 0 ? getChunkByPage(currentPage - 1) : null
+
+      // ── 강제 포함: region 맥락의 해당 페이지 (이미지 내 텍스트 보강) ─
+      const regionPageChunks = contextAnnotations
+        .filter((a) => a.type === 'region' && a.pageIndex != null)
+        .map((a) => getChunkByPage(a.pageIndex))
+        .filter(Boolean)
+
+      // 병합 + 중복제거 (pageIndex 기준)
+      const finalChunks = mergeChunks(topChunks, currentPageChunk, ...regionPageChunks)
+
+      const availablePages = finalChunks.map((c) => `p.${c.pageIndex + 1}`).join(', ')
+      const allowedPageNums = new Set(finalChunks.map((c) => c.pageIndex + 1))
+
+      // user message에는 데이터만 — 인용 규칙은 systemInstruction에서 강제
+      const ragBlock = finalChunks.length > 0
+        ? `[문서 컨텍스트 — ${availablePages}]\n` +
+          finalChunks.map((c) => `(p.${c.pageIndex + 1}) ${c.text}`).join('\n') +
+          '\n---\n'
         : ''
+
+      const systemInstruction = finalChunks.length > 0
+        ? buildRagSystemInstruction(availablePages)
+        : indexed
+          ? NO_CHUNK_FALLBACK
+          : null
 
       // ── 하이라이트 맥락 ──────────────────────────────────────────
       const hasContext = contextAnnotations.length > 0
@@ -87,7 +126,11 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
         async (full) => {
           setStreamingText('')
           setIsStreaming(false)
-          await addMessage('assistant', full, contextText)
+          // 허용되지 않은 페이지 번호 참조 제거 후 저장
+          const cleanFull = allowedPageNums.size > 0
+            ? stripHallucinatedRefs(full, allowedPageNums)
+            : full
+          await addMessage('assistant', cleanFull, contextText)
         },
         (errMsg) => {
           setError(errMsg)
@@ -95,6 +138,7 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
           setStreamingText('')
         },
         imageParts,
+        systemInstruction,
       )
     } catch (err) {
       setError(err.message ?? '오류가 발생했습니다')
@@ -122,29 +166,45 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
 
   return (
     <div style={styles.panel}>
-      {/* 색인 생성 진행 배너 */}
-      {indexing && (
-        <div style={styles.indexBanner}>
-          <div style={styles.indexBarTrack}>
-            <div
-              style={{
-                ...styles.indexBarFill,
-                width: indexTotal > 0 ? `${(indexProgress / indexTotal) * 100}%` : '0%',
-              }}
-            />
-          </div>
-          <span style={styles.indexLabel}>
-            문서 색인 생성 중… {indexProgress}/{indexTotal}p
+      {/* RAG 색인 상태 — 항상 표시 */}
+      <div style={styles.ragStatusBar}>
+        {!checkDone && (
+          <span style={styles.ragLabel}>⏳ 색인 확인 중…</span>
+        )}
+        {checkDone && indexing && (
+          <>
+            <div style={styles.ragProgressTrack}>
+              <div style={{
+                ...styles.ragProgressFill,
+                width: indexTotal > 0 ? `${(indexProgress / indexTotal) * 100}%` : '4%',
+              }} />
+            </div>
+            <span style={{ ...styles.ragLabel, color: '#6366f1' }}>
+              ⚙ 색인 생성 중 {indexProgress}/{indexTotal}p
+            </span>
+          </>
+        )}
+        {checkDone && indexed && !indexing && (
+          <span style={{ ...styles.ragLabel, color: '#16a34a' }}>
+            ✓ RAG 활성 — {chunkCount}p 색인됨
           </span>
-        </div>
-      )}
-      {/* 색인 실패 배너 */}
-      {indexError && !indexing && (
-        <div style={styles.indexErrorBanner}>
-          <span style={styles.indexErrorLabel}>색인 실패: {indexError}</span>
-          <button style={styles.indexRetryBtn} onClick={buildIndex}>재시도</button>
-        </div>
-      )}
+        )}
+        {checkDone && !indexed && !indexing && !indexError && !pdfReady && (
+          <span style={styles.ragLabel}>⏳ PDF 로딩 대기 중…</span>
+        )}
+        {checkDone && !indexed && !indexing && !indexError && pdfReady && (
+          <span style={styles.ragLabel}>
+            ⚠ 색인 없음 (RAG 비활성)
+            <button style={styles.ragActionBtn} onClick={buildIndex}>색인 생성</button>
+          </span>
+        )}
+        {indexError && !indexing && (
+          <span style={{ ...styles.ragLabel, color: '#c00' }}>
+            ✕ 색인 실패: {indexError}
+            <button style={styles.ragActionBtn} onClick={buildIndex}>재시도</button>
+          </span>
+        )}
+      </div>
 
       {/* 맥락 배너 */}
       {hasContext ? (
@@ -346,57 +406,49 @@ const styles = {
     overflow: 'hidden',
     background: '#fafafa',
   },
-  // 색인 진행 배너
-  indexBanner: {
-    padding: '8px 14px 6px',
-    background: '#f0f4ff',
-    borderBottom: '1px solid #dde5ff',
+  // RAG 상태 바 (항상 표시)
+  ragStatusBar: {
+    padding: '5px 14px',
+    background: '#f8f8ff',
+    borderBottom: '1px solid #ebebff',
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
-    gap: 4,
+    gap: 3,
+    minHeight: 26,
+    justifyContent: 'center',
   },
-  indexBarTrack: {
-    height: 3,
-    background: '#dde5ff',
-    borderRadius: 2,
-    overflow: 'hidden',
-  },
-  indexBarFill: {
-    height: '100%',
-    background: '#6366f1',
-    borderRadius: 2,
-    transition: 'width 0.3s ease',
-  },
-  indexLabel: {
+  ragLabel: {
     fontSize: 10,
-    color: '#6366f1',
-    fontWeight: 500,
-  },
-  indexErrorBanner: {
-    padding: '7px 14px',
-    background: '#fff0f0',
-    borderBottom: '1px solid #ffd5d5',
-    flexShrink: 0,
+    color: '#aaa',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 8,
+    gap: 5,
+    lineHeight: 1.4,
   },
-  indexErrorLabel: {
-    fontSize: 11,
-    color: '#c00',
-    flex: 1,
+  ragProgressTrack: {
+    height: 2,
+    background: '#dde5ff',
+    borderRadius: 1,
+    overflow: 'hidden',
+    marginBottom: 1,
   },
-  indexRetryBtn: {
-    fontSize: 11,
-    padding: '3px 8px',
-    borderRadius: 5,
-    background: '#c00',
+  ragProgressFill: {
+    height: '100%',
+    background: '#6366f1',
+    borderRadius: 1,
+    transition: 'width 0.3s ease',
+  },
+  ragActionBtn: {
+    fontSize: 10,
+    padding: '2px 7px',
+    borderRadius: 4,
+    background: '#6366f1',
     color: '#fff',
     cursor: 'pointer',
-    flexShrink: 0,
     fontWeight: 600,
+    border: 'none',
+    marginLeft: 4,
   },
   // 맥락 배너
   contextBanner: {
@@ -533,6 +585,8 @@ const styles = {
     fontFamily: 'inherit',
     outline: 'none',
     lineHeight: 1.5,
+    maxHeight: 120,
+    overflowY: 'auto',
   },
   sendBtn: {
     padding: '7px 14px',

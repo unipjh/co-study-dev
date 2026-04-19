@@ -28,10 +28,22 @@ export default function ViewerPage() {
   const [loadError,          setLoadError]           = useState(null)
   const [sidebarWidth,       setSidebarWidth]        = useState(SIDEBAR_DEFAULT)
   const [viewportWidth,      setViewportWidth]       = useState(() => window.innerWidth)
+  const [retryCount,         setRetryCount]          = useState(0)
+  const [toast,              setToast]               = useState(null)
   const prevSidebarWidthRef = useRef(SIDEBAR_DEFAULT)
+  const toastTimerRef = useRef(null)
 
   const { annotations, remove: removeAnnotation } = useAnnotation(docId)
   const isMobile = viewportWidth < 700
+
+  // [B3] 주석이 삭제되면 stale contextAnnotations 자동 정리 (동일 ref 반환으로 루프 방지)
+  useEffect(() => {
+    const ids = new Set(annotations.map((a) => a.id))
+    setContextAnnotations((prev) => {
+      if (prev.every((a) => ids.has(a.id))) return prev
+      return prev.filter((a) => ids.has(a.id))
+    })
+  }, [annotations])
 
   // 마인드맵 탭 전환 시 사이드바 5:5 자동 조정
   useEffect(() => {
@@ -110,9 +122,9 @@ export default function ViewerPage() {
     return () => window.removeEventListener('resize', onResize)
   }, [])
 
+  // [D1] retryCount 포함 — 재시도 시 effect 재실행
   useEffect(() => {
     if (!uid) return
-    // docId 바뀌면 이전 blob을 즉시 제거 — useDocumentIndex가 stale blob으로 색인하는 것을 방지
     setStorageDoc({ blob: null, name: null })
     setLoadError(null)
     async function loadDoc() {
@@ -123,7 +135,21 @@ export default function ViewerPage() {
       setStorageDoc({ blob, name: meta.name })
     }
     loadDoc().catch((e) => setLoadError(e.message))
-  }, [docId, uid])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [docId, uid, retryCount])
+
+  // [B1] 토스트 표시 헬퍼
+  function showToast(message) {
+    clearTimeout(toastTimerRef.current)
+    setToast(message)
+    toastTimerRef.current = setTimeout(() => setToast(null), 3000)
+  }
+
+  // [A1] 탭 변경 시 사이드바 항상 열기
+  function handleTabChange(tab) {
+    setActiveTab(tab)
+    setSidebarOpen(true)
+  }
 
   function handleSendToChat(annotation) {
     setContextAnnotations((prev) =>
@@ -131,6 +157,7 @@ export default function ViewerPage() {
     )
     setActiveTab('chat')
     setSidebarOpen(true)
+    showToast('맥락이 Chat에 추가되었습니다')
   }
 
   function handleClearContext(id) {
@@ -140,8 +167,13 @@ export default function ViewerPage() {
   if (loadError) {
     return (
       <div style={styles.error}>
-        <p>{loadError}</p>
-        <button style={styles.backBtn} onClick={() => navigate('/')}>홈으로</button>
+        <p style={styles.errorMsg}>{loadError}</p>
+        <div style={styles.errorActions}>
+          <button style={styles.retryBtn} onClick={() => setRetryCount((c) => c + 1)}>
+            다시 시도
+          </button>
+          <button style={styles.backBtn} onClick={() => navigate('/')}>홈으로</button>
+        </div>
       </div>
     )
   }
@@ -170,7 +202,7 @@ export default function ViewerPage() {
           docId={docId}
           onSendToChat={handleSendToChat}
           activeTab={activeTab}
-          onTabChange={setActiveTab}
+          onTabChange={handleTabChange}
           sidebarOpen={sidebarOpen}
           onSidebarToggle={() => setSidebarOpen((v) => !v)}
         />
@@ -204,10 +236,16 @@ export default function ViewerPage() {
                 onClearContext={handleClearContext}
                 onSendToChat={handleSendToChat}
                 activeTab={activeTab}
-                onTabChange={setActiveTab}
+                onTabChange={handleTabChange}
+                currentPage={currentPage}
               />
             </div>
           </>
+        )}
+
+        {/* [B1] 토스트 알림 */}
+        {toast && (
+          <div style={styles.toast}>{toast}</div>
         )}
       </div>
     </div>
@@ -252,8 +290,29 @@ const styles = {
     height: '100%', display: 'flex', flexDirection: 'column',
     alignItems: 'center', justifyContent: 'center', gap: 16,
   },
+  errorMsg: { fontSize: 14, color: '#555' },
+  errorActions: { display: 'flex', gap: 8 },
+  retryBtn: {
+    padding: '8px 20px', borderRadius: 8,
+    background: '#6366f1', color: '#fff', fontSize: 14, cursor: 'pointer',
+  },
   backBtn: {
     padding: '8px 20px', borderRadius: 8,
     background: '#1a1a1a', color: '#fff', fontSize: 14, cursor: 'pointer',
+  },
+  toast: {
+    position: 'absolute',
+    bottom: 72,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    background: 'rgba(30,30,30,0.88)',
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 600,
+    padding: '7px 16px',
+    borderRadius: 20,
+    pointerEvents: 'none',
+    zIndex: 100,
+    whiteSpace: 'nowrap',
   },
 }

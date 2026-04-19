@@ -5,7 +5,7 @@ import 'react-pdf/dist/Page/AnnotationLayer.css'
 import { extractSelection, mergeLineRects } from '../../lib/selectionUtils'
 import useDocumentStore from '../../store/documentStore'
 import useAnnotation from '../../hooks/useAnnotation'
-import useAI from '../AI/useAI'
+import useAI, { buildRagSystemInstruction, NO_CHUNK_FALLBACK } from '../AI/useAI'
 import useDocumentIndex from '../../hooks/useDocumentIndex'
 import HighlightLayer from './HighlightLayer'
 import SelectionToolbar from './SelectionToolbar'
@@ -74,15 +74,17 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
     useAnnotation(docId)
 
   const { ask, response, isStreaming, reset } = useAI()
-  const { search: searchIndex } = useDocumentIndex(docId)
+  const { search: searchIndex, getChunkByPage, indexing, indexed, indexProgress, indexTotal } = useDocumentIndex(docId)
 
   const pdfFile = useMemo(() => pdfBlob ?? null, [pdfBlob])
 
   const [selection, setSelection]               = useState(null)
   const [dragRects, setDragRects]               = useState(null)
   const [activeAnnotation, setActiveAnnotation] = useState(null)
+  const [activeAnnotationPage, setActiveAnnotationPage] = useState(null)
   const [containerSize, setContainerSize]       = useState(null)
   const [aiState, setAiState]                   = useState(null)
+  const [regionError, setRegionError]           = useState(null)
   // 멀티 드래그 누적 그룹
   const [pendingGroups, setPendingGroups]       = useState([])
   const [wrapperWidth, setWrapperWidth]         = useState(800)
@@ -90,6 +92,8 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
   const pageContainerRef = useRef(null)
   const firstScrollRef   = useRef(null)
   const pageRefs         = useRef({})
+  const pageCanvasRef    = useRef(null)   // page 모드 PDF 캔버스 직접 참조
+  const scrollCanvasRefs = useRef({})     // scroll 모드 PDF 캔버스 직접 참조
   const outerRef         = useRef(null)  // 스크롤 컨테이너 (pan mode용)
   const wrapperRef       = useRef(null)  // canvasWrapper 너비 측정용
   const navDebounceRef   = useRef(null)  // 방향키 페이지 이동 debounce 타이머
@@ -105,6 +109,10 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
   useEffect(() => {
     scrollToPageRef.current = currentPage
   }, [currentPage])
+
+  // 페이지 전환 시 AI 인라인 팝업 초기화
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { if (aiState) { setAiState(null); reset() } }, [currentPage])
 
   // ── 페이지→스크롤 전환 시 현재 페이지로 스크롤 ───────────────
   useEffect(() => {
@@ -353,7 +361,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
     if (!container) { setDragRects(null); return }
 
     const info = extractSelection(container, selPageIndex)
-    if (info) {
+    if (info && info.text.trim().length > 0) {
       // removeAllRanges 하지 않음 → 사용자가 Ctrl+C로 복사 가능
       setActiveAnnotation(null)
       setAiState(null)
@@ -577,34 +585,48 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
   }
 
   // ── 영역 선택 이미지 캡처 (pdf.js 캔버스 크롭) ───────────────
-  function captureRegionAsBase64(containerEl, rects) {
-    if (!containerEl || !rects?.length) return null
-    const pageCanvas = containerEl.querySelector('canvas')
-    if (!pageCanvas) return null
-    const displayRect = containerEl.getBoundingClientRect()
-    const rect = rects[0]  // 영역 선택은 단일 rect
-    const scaleX = pageCanvas.width / displayRect.width
-    const scaleY = pageCanvas.height / displayRect.height
-    const srcX = Math.round(rect.left   * displayRect.width  * scaleX)
-    const srcY = Math.round(rect.top    * displayRect.height * scaleY)
-    const srcW = Math.round(rect.width  * displayRect.width  * scaleX)
-    const srcH = Math.round(rect.height * displayRect.height * scaleY)
-    if (srcW <= 0 || srcH <= 0) return null
-    const tmp = document.createElement('canvas')
-    tmp.width  = srcW
-    tmp.height = srcH
-    const ctx = tmp.getContext('2d')
-    if (!ctx) return null
-    ctx.drawImage(pageCanvas, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH)
-    return tmp.toDataURL('image/png').split(',')[1]  // base64 (prefix 제거)
+  // pageCanvas: react-pdf canvasRef로 직접 받은 HTMLCanvasElement
+  // containerEl: 좌표 기준 컨테이너 (pageWrapper div)
+  function captureRegionAsBase64(pageCanvas, containerEl, rects) {
+    try {
+      if (!pageCanvas || !containerEl || !rects?.length) return null
+      const displayRect = containerEl.getBoundingClientRect()
+      const rect = rects[0]
+      // pageCanvas.width = 물리 픽셀, displayRect = CSS 픽셀
+      const scaleX = pageCanvas.width  / displayRect.width
+      const scaleY = pageCanvas.height / displayRect.height
+      const srcX = Math.round(rect.left   * displayRect.width  * scaleX)
+      const srcY = Math.round(rect.top    * displayRect.height * scaleY)
+      const srcW = Math.round(rect.width  * displayRect.width  * scaleX)
+      const srcH = Math.round(rect.height * displayRect.height * scaleY)
+      if (srcW <= 0 || srcH <= 0) return null
+      const tmp = document.createElement('canvas')
+      tmp.width  = srcW
+      tmp.height = srcH
+      const ctx = tmp.getContext('2d')
+      if (!ctx) return null
+      ctx.drawImage(pageCanvas, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH)
+      return tmp.toDataURL('image/png').split(',')[1]
+    } catch (err) {
+      console.error('[captureRegionAsBase64] 캡처 실패:', err)
+      return null
+    }
   }
 
   function handleSendImageToChat() {
     if (!selection || !selection.isRegion) return
+    const pageCanvas = viewMode === 'page'
+      ? pageCanvasRef.current
+      : scrollCanvasRefs.current[selection.pageIndex]
     const containerEl = viewMode === 'page'
       ? pageContainerRef.current
       : pageRefs.current[selection.pageIndex]
-    const imageData = captureRegionAsBase64(containerEl, selection.rects)
+    const imageData = captureRegionAsBase64(pageCanvas, containerEl, selection.rects)
+    if (!imageData) {
+      setRegionError('이미지 캡처에 실패했습니다. 다시 시도해주세요.')
+      setTimeout(() => setRegionError(null), 3000)
+      return
+    }
     onSendToChat?.({
       id:        `region_${Date.now()}`,
       type:      'region',
@@ -617,10 +639,11 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
     handleSoftClose()
   }
 
-  function handleAnnotationClick(ann) {
+  function handleAnnotationClick(ann, pageIdx) {
     setSelection(null)
     setDragRects(null)
     setActiveAnnotation(ann)
+    setActiveAnnotationPage(pageIdx ?? ann.pageIndex)
   }
 
   async function handleAITutor() {
@@ -633,19 +656,29 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
     setPendingGroups([])
     reset()
 
-    // RAG: 문서 색인에서 관련 페이지 검색 후 프롬프트에 주입
+    // RAG: 의미 검색 + 선택한 페이지 강제 포함
     const topChunks = await searchIndex(saved.text)
-    const availablePages = topChunks.map((c) => `p.${c.pageIndex + 1}`).join(', ')
-    const ragBlock = topChunks.length > 0
-      ? `[문서 참고 자료 — 검색된 관련 페이지]\n` +
-        topChunks.map((c) => `(p.${c.pageIndex + 1}) ${c.text}`).join('\n') +
-        '\n\n[답변 지침]\n' +
-        `- 위 참고 자료(${availablePages})에 있는 내용을 근거로 설명하세요.\n` +
-        `- [p.숫자] 인용은 위 목록(${availablePages})에 실제로 존재하는 페이지만 사용하세요. 없는 페이지 번호는 절대 만들지 마세요.\n` +
-        '- 참고 자료에서 찾을 수 없는 내용은 "교안에서 확인할 수 없는 내용입니다"라고 명시하세요.\n---\n'
+    const chunkMap = new Map(topChunks.map((c) => [c.pageIndex, c]))
+    const selPageChunk = getChunkByPage(saved.pageIndex)
+    if (selPageChunk && !chunkMap.has(selPageChunk.pageIndex)) {
+      chunkMap.set(selPageChunk.pageIndex, selPageChunk)
+    }
+    const finalChunks = [...chunkMap.values()].sort((a, b) => a.pageIndex - b.pageIndex)
+
+    const availablePages = finalChunks.map((c) => `p.${c.pageIndex + 1}`).join(', ')
+
+    // ragBlock: 데이터만 (citation 규칙은 systemOverride로 분리)
+    const ragBlock = finalChunks.length > 0
+      ? `[문서 컨텍스트 — ${availablePages}]\n` +
+        finalChunks.map((c) => `(p.${c.pageIndex + 1}) ${c.text}`).join('\n') +
+        '\n---\n'
       : ''
 
-    ask(saved.text, 'explain', ragBlock)
+    const systemOverride = finalChunks.length > 0
+      ? buildRagSystemInstruction(availablePages)
+      : NO_CHUNK_FALLBACK
+
+    ask(saved.text, 'explain', ragBlock, systemOverride)
   }
 
   function handleAISaveAsMemo() {
@@ -684,7 +717,10 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
     return (
       <div style={styles.canvasWrapper}>
         <div style={styles.outer}>
-          <p style={styles.hint}>문서를 불러오는 중...</p>
+          <div style={styles.loadingCenter}>
+            <div style={styles.spinner} />
+            <p style={styles.loadingText}>문서를 불러오는 중...</p>
+          </div>
         </div>
       </div>
     )
@@ -702,7 +738,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
           file={pdfFile}
           onLoadSuccess={({ numPages: n }) => setNumPages(n)}
           onLoadError={(err) => console.error('PDF load error:', err)}
-          loading={<div style={styles.loading}>PDF 불러오는 중...</div>}
+          loading={<div style={styles.loadingCenter}><div style={styles.spinner} /><p style={styles.loadingText}>PDF 파싱 중...</p></div>}
         >
           {viewMode === 'page' ? (
             <div
@@ -716,6 +752,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
                 renderTextLayer={true}
                 renderAnnotationLayer={false}
                 onRenderSuccess={handlePageRenderSuccess}
+                canvasRef={pageCanvasRef}
               />
               <HighlightLayer
                 annotations={annotations}
@@ -733,14 +770,15 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
               {selection && selection.pageIndex === currentPage - 1 && (
                 <SelectionOverlay rects={selection.rects} />
               )}
-              {activeAnnotation && activeAnnotation.pageIndex === currentPage - 1 && (
+              {activeAnnotation && activeAnnotationPage === currentPage - 1 && (
                 <AnnotationPopup
                   annotation={activeAnnotation}
+                  displayPageIndex={activeAnnotationPage}
                   containerSize={containerSize}
                   onUpdate={updateAnnotation}
-                  onDelete={(id) => { removeAnnotation(id); setActiveAnnotation(null) }}
-                  onSendToChat={(ann) => { onSendToChat?.(ann); setActiveAnnotation(null) }}
-                  onClose={() => setActiveAnnotation(null)}
+                  onDelete={(id) => { removeAnnotation(id); setActiveAnnotation(null); setActiveAnnotationPage(null) }}
+                  onSendToChat={(ann) => { onSendToChat?.(ann); setActiveAnnotation(null); setActiveAnnotationPage(null) }}
+                  onClose={() => { setActiveAnnotation(null); setActiveAnnotationPage(null) }}
                 />
               )}
               {/* 영역 선택 오버레이 */}
@@ -778,6 +816,10 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
                     renderTextLayer={true}
                     renderAnnotationLayer={false}
                     onRenderSuccess={isFirst ? handleFirstScrollRenderSuccess : undefined}
+                    canvasRef={(canvas) => {
+                      if (canvas) scrollCanvasRefs.current[i] = canvas
+                      else delete scrollCanvasRefs.current[i]
+                    }}
                   />
                   <HighlightLayer
                     annotations={annotations}
@@ -794,14 +836,15 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
                   {selection && selection.pageIndex === i && (
                     <SelectionOverlay rects={selection.rects} />
                   )}
-                  {activeAnnotation && activeAnnotation.pageIndex === i && (
+                  {activeAnnotation && activeAnnotationPage === i && (
                     <AnnotationPopup
                       annotation={activeAnnotation}
+                      displayPageIndex={activeAnnotationPage}
                       containerSize={containerSize}
                       onUpdate={updateAnnotation}
-                      onDelete={(id) => { removeAnnotation(id); setActiveAnnotation(null) }}
-                      onSendToChat={(ann) => { onSendToChat?.(ann); setActiveAnnotation(null) }}
-                      onClose={() => setActiveAnnotation(null)}
+                      onDelete={(id) => { removeAnnotation(id); setActiveAnnotation(null); setActiveAnnotationPage(null) }}
+                      onSendToChat={(ann) => { onSendToChat?.(ann); setActiveAnnotation(null); setActiveAnnotationPage(null) }}
+                      onClose={() => { setActiveAnnotation(null); setActiveAnnotationPage(null) }}
                     />
                   )}
                   {selectionMode === 'region' && (
@@ -839,6 +882,11 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
             ›
           </button>
         </>
+      )}
+
+      {/* 영역 캡처 실패 알림 */}
+      {regionError && (
+        <div style={styles.regionErrorToast}>{regionError}</div>
       )}
 
       {/* 하단 플로팅 컨트롤 바 */}
@@ -896,6 +944,19 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
         )}
 
         <span style={styles.barDivider} />
+
+        {/* 색인 상태 배지 */}
+        {indexing && (
+          <span style={styles.indexBadge}>
+            ⟳ {indexTotal > 0 ? `${indexProgress}/${indexTotal}` : '색인 중'}
+          </span>
+        )}
+        {!indexing && indexed && (
+          <span style={{ ...styles.indexBadge, background: 'rgba(92,204,127,0.25)', color: '#5CCC7F' }}>
+            ✓ 색인
+          </span>
+        )}
+
         <span style={styles.barSpacer} />
 
         {SIDEBAR_TABS.map((tab) => {
@@ -972,11 +1033,41 @@ const styles = {
     padding: 24,
   },
   hint: { color: '#aaa', fontSize: 15, alignSelf: 'center' },
-  loading: { color: '#999', padding: 24 },
+  loadingCenter: {
+    alignSelf: 'center',
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: 12,
+  },
+  spinner: {
+    width: 32,
+    height: 32,
+    borderRadius: '50%',
+    border: '3px solid #e0e0e0',
+    borderTopColor: '#6366f1',
+    animation: 'spin 0.8s linear infinite',
+  },
+  loadingText: { color: '#aaa', fontSize: 13 },
   pageWrapper: {
     position: 'relative',
     display: 'inline-block',
     boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+  },
+  regionErrorToast: {
+    position: 'absolute',
+    bottom: 72,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    background: 'rgba(200,0,0,0.88)',
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 600,
+    padding: '7px 16px',
+    borderRadius: 20,
+    pointerEvents: 'none',
+    zIndex: 30,
+    whiteSpace: 'nowrap',
   },
   bottomBar: {
     position: 'absolute',
@@ -1024,6 +1115,16 @@ const styles = {
   barSpacer: {
     flex: 1,
     minWidth: 16,
+  },
+  indexBadge: {
+    fontSize: 10,
+    fontWeight: 700,
+    padding: '2px 7px',
+    borderRadius: 10,
+    background: 'rgba(251,191,36,0.25)',
+    color: '#FBBF24',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
   },
   barBtnDisabled: {
     opacity: 0.3,

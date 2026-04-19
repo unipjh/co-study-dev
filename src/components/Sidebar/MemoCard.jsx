@@ -1,3 +1,4 @@
+import { useState, useRef } from 'react'
 import { getDisplayColor, getColorLabel } from '../../lib/colorUtils'
 
 /**
@@ -6,6 +7,18 @@ import { getDisplayColor, getColorLabel } from '../../lib/colorUtils'
  * @param {{ annotation, onDelete, onScrollTo, onSendToChat }} props
  */
 export default function MemoCard({ annotation, onDelete, onScrollTo, onSendToChat }) {
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const confirmTimerRef = useRef(null)
+
+  function handleDeleteClick() {
+    if (confirmDelete) {
+      clearTimeout(confirmTimerRef.current)
+      onDelete?.(annotation.id)
+    } else {
+      setConfirmDelete(true)
+      confirmTimerRef.current = setTimeout(() => setConfirmDelete(false), 3000)
+    }
+  }
   const colorBg    = getDisplayColor(annotation.color)
   const colorLabel = getColorLabel(annotation.color)
 
@@ -23,11 +36,11 @@ export default function MemoCard({ annotation, onDelete, onScrollTo, onSendToCha
           ↗
         </button>
         <button
-          style={styles.delBtn}
-          onClick={() => onDelete?.(annotation.id)}
-          title="삭제"
+          style={confirmDelete ? styles.delBtnConfirm : styles.delBtn}
+          onClick={handleDeleteClick}
+          title={confirmDelete ? '한 번 더 클릭하면 삭제됩니다' : '삭제'}
         >
-          ×
+          {confirmDelete ? '삭제?' : '×'}
         </button>
       </div>
 
@@ -63,6 +76,11 @@ const styles = {
   page: { fontSize: 11, color: '#aaa' },
   goBtn: { fontSize: 12, color: '#888', cursor: 'pointer', padding: '0 2px' },
   delBtn: { fontSize: 14, color: '#ccc', cursor: 'pointer', padding: '0 2px', lineHeight: 1 },
+  delBtnConfirm: {
+    fontSize: 10, color: '#ef4444', cursor: 'pointer', fontWeight: 700,
+    padding: '2px 5px', lineHeight: 1,
+    background: '#fff0f0', border: '1px solid #fca5a5', borderRadius: 4,
+  },
   source: {
     fontSize: 11, color: '#888', lineHeight: 1.4, wordBreak: 'break-word',
     borderLeft: '2px solid #e8e8e8', paddingLeft: 8, fontStyle: 'italic',

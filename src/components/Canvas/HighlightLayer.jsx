@@ -61,7 +61,7 @@ export default function HighlightLayer({ annotations, pageIndex, containerSize, 
                       background: getHighlightColor(ann.color),
                     }
               }
-              onClick={() => onClickAnnotation?.(ann)}
+              onClick={() => onClickAnnotation?.(ann, pageIndex)}
             />
           )
         })

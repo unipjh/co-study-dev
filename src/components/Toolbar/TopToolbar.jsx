@@ -20,9 +20,9 @@ export default function TopToolbar({ onHome, onPageLabelClick }) {
       </div>
 
       <div style={styles.center}>
-        <button style={styles.iconBtn} onClick={() => setZoomLevel(zoomLevel - 0.1)}>−</button>
+        <button style={{ ...styles.iconBtn, opacity: zoomLevel <= 0.5 ? 0.35 : 1 }} disabled={zoomLevel <= 0.5} onClick={() => setZoomLevel(zoomLevel - 0.1)}>−</button>
         <span style={styles.zoomLabel}>{Math.round(zoomLevel * 100)}%</span>
-        <button style={styles.iconBtn} onClick={() => setZoomLevel(zoomLevel + 0.1)}>+</button>
+        <button style={{ ...styles.iconBtn, opacity: zoomLevel >= 2.0 ? 0.35 : 1 }} disabled={zoomLevel >= 2.0} onClick={() => setZoomLevel(zoomLevel + 0.1)}>+</button>
 
         {viewMode === 'page' && numPages > 0 && (
           <>

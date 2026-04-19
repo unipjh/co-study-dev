@@ -26,6 +26,7 @@ export default function SidePanel({
   onClearContext,
   onSendToChat,
   activeTab,
+  currentPage,
 }) {
   return (
     <div style={styles.panel}>
@@ -34,6 +35,7 @@ export default function SidePanel({
           docId={docId}
           contextAnnotations={contextAnnotations}
           onClearContext={onClearContext}
+          currentPage={currentPage}
         />
       )}
       {activeTab === 'memo' && (

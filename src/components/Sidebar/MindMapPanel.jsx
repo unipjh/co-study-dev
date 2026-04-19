@@ -1,3 +1,4 @@
+import { useState, useRef } from 'react'
 import useMindMap from '../../hooks/useMindMap'
 import MindMapCanvas from '../MindMap/MindMapCanvas'
 import useDocumentStore from '../../store/documentStore'
@@ -15,6 +16,19 @@ export default function MindMapPanel({ docId }) {
     maps, activeMap, generating, progress, error,
     generate, load, remove,
   } = useMindMap(docId)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const confirmTimerRef = useRef(null)
+
+  function handleDeleteClick() {
+    if (confirmDelete) {
+      clearTimeout(confirmTimerRef.current)
+      remove(activeMap.id)
+      setConfirmDelete(false)
+    } else {
+      setConfirmDelete(true)
+      confirmTimerRef.current = setTimeout(() => setConfirmDelete(false), 3000)
+    }
+  }
 
   const noDoc = !docId || !pdfBlob
 
@@ -112,11 +126,11 @@ export default function MindMapPanel({ docId }) {
               노드 {activeMap.nodes?.length ?? 0}개 · 관계 {activeMap.edges?.length ?? 0}개 · {activeMap.scopeLabel}
             </span>
             <button
-              style={styles.deleteMapBtn}
-              onClick={() => remove(activeMap.id)}
-              title="이 마인드맵 삭제"
+              style={confirmDelete ? styles.deleteMapBtnConfirm : styles.deleteMapBtn}
+              onClick={handleDeleteClick}
+              title={confirmDelete ? '한 번 더 클릭하면 삭제됩니다' : '이 마인드맵 삭제'}
             >
-              삭제
+              {confirmDelete ? '정말 삭제?' : '삭제'}
             </button>
           </div>
           <MindMapCanvas mindMap={activeMap} />
@@ -266,5 +280,15 @@ const styles = {
     background: 'transparent',
     border: 'none',
     padding: '2px 4px',
+  },
+  deleteMapBtnConfirm: {
+    fontSize: 11,
+    color: '#ef4444',
+    cursor: 'pointer',
+    fontWeight: 700,
+    background: '#fff0f0',
+    border: '1px solid #fca5a5',
+    borderRadius: 4,
+    padding: '3px 8px',
   },
 }

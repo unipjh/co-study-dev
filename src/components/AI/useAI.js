@@ -7,6 +7,27 @@ const SYSTEM_PROMPT = `당신은 학습 보조 AI 튜터입니다.
 - 친근하고 이해하기 쉬운 언어를 사용합니다.
 - 마크다운 형식을 적절히 활용합니다.`
 
+/**
+ * RAG 청크가 있을 때 주입하는 공통 시스템 프롬프트
+ * — ⚡ 인라인 AI와 Chat 모두 동일 정책 적용
+ */
+export function buildRagSystemInstruction(availablePages) {
+  return `${SYSTEM_PROMPT}
+
+[문서 기반 답변 규칙 — 이 규칙을 최우선으로 준수하세요]
+이번 응답에 사용 가능한 문서 페이지: ${availablePages}
+1. 위 컨텍스트에 있는 내용을 근거로 답변하세요.
+2. 페이지 인용 형식: [p.숫자] — 반드시 위 목록(${availablePages})에 실제 존재하는 번호만 사용하세요.
+3. 목록에 없는 페이지 번호 생성은 엄격히 금지됩니다.
+4. 문서에서 찾을 수 없는 내용은 "교안에 없는 내용이지만"으로 시작하여 일반 지식으로 보완하여 답변하세요.
+5. 각 문단 끝에 출처 페이지를 [p.숫자] 형식으로 표시하세요.`
+}
+
+/** RAG 색인은 됐지만 관련 청크를 못 찾은 경우 fallback */
+export const NO_CHUNK_FALLBACK = `${SYSTEM_PROMPT}
+
+[주의] 문서에서 관련 내용을 찾지 못했습니다. 일반 지식으로 답변하되, 이를 먼저 고지하세요.`
+
 // 빠른 단발성 요청 프롬프트
 const QUICK_PROMPTS = {
   explain: (text) => `아래 내용을 쉽게 설명해줘.
@@ -106,7 +127,8 @@ export default function useAI() {
 
   // 단발 요청 (설명 / 퀴즈 생성) — Flash-Lite
   // ragBlock: 선택사항 — RAG 검색 결과를 프롬프트 앞에 주입
-  const ask = useCallback(async (selectedText, functionKey, ragBlock = '') => {
+  // systemOverride: 선택사항 — system instruction 오버라이드 (citation 규칙 주입용)
+  const ask = useCallback(async (selectedText, functionKey, ragBlock = '', systemOverride = null) => {
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
@@ -118,7 +140,9 @@ export default function useAI() {
     const prompt = ragBlock + (QUICK_PROMPTS[functionKey] ?? QUICK_PROMPTS.explain)(selectedText)
 
     try {
-      const model = getFlashLiteModel()
+      const model = systemOverride
+        ? getGenAI().getGenerativeModel({ model: 'gemini-2.5-flash-lite', systemInstruction: systemOverride })
+        : getFlashLiteModel()
       const result = await model.generateContentStream(prompt, { signal: controller.signal })
       for await (const chunk of result.stream) {
         if (controller.signal.aborted) break
@@ -140,14 +164,17 @@ export default function useAI() {
    * @param {(full: string) => void} onDone
    * @param {(errMsg: string) => void} onError
    * @param {Array<{inlineData:{data:string,mimeType:string}}>} imageParts — 인라인 이미지 (선택)
+   * @param {string|null} systemOverride — system instruction 오버라이드 (선택, RAG 제약 주입용)
    */
-  const chat = useCallback(async (history, userMessage, onChunk, onDone, onError, imageParts = []) => {
+  const chat = useCallback(async (history, userMessage, onChunk, onDone, onError, imageParts = [], systemOverride = null) => {
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
 
     try {
-      const model = getFlashModel()
+      const model = systemOverride
+        ? getGenAI().getGenerativeModel({ model: 'gemini-2.5-flash', systemInstruction: systemOverride })
+        : getFlashModel()
       // Gemini role: 'user' | 'model'
       const geminiHistory = history.map((m) => ({
         role: m.role === 'assistant' ? 'model' : 'user',

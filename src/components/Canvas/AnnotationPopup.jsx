@@ -20,6 +20,7 @@ const VISIBLE_PRESETS = PRESET_COLORS.filter((c) => c.key !== 'purple')
  */
 export default function AnnotationPopup({
   annotation,
+  displayPageIndex,
   containerSize,
   onUpdate,
   onDelete,
@@ -31,6 +32,8 @@ export default function AnnotationPopup({
   const [dragOffset, setDragOffset]   = useState({ x: 0, y: 0 })
   const [customColors, setCustomColors] = useState(loadCustomColors)
   const [stagedColor, setStagedColor] = useState(null)  // 커스텀 색상 확인 대기 중
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const confirmTimerRef = useRef(null)
   const ref      = useRef(null)
   const inputRef = useRef(null)
 
@@ -40,7 +43,19 @@ export default function AnnotationPopup({
     setEditing(false)
     setDragOffset({ x: 0, y: 0 })
     setStagedColor(null)
+    setConfirmDelete(false)
+    clearTimeout(confirmTimerRef.current)
   }, [annotation.id])
+
+  function handleDeleteClick() {
+    if (confirmDelete) {
+      clearTimeout(confirmTimerRef.current)
+      onDelete?.(annotation.id)
+    } else {
+      setConfirmDelete(true)
+      confirmTimerRef.current = setTimeout(() => setConfirmDelete(false), 3000)
+    }
+  }
 
   function startDrag(e) {
     e.preventDefault()
@@ -69,13 +84,22 @@ export default function AnnotationPopup({
     return () => document.removeEventListener('pointerdown', handlePointerDown)
   }, [onClose])
 
-  if (!containerSize || !annotation.rects?.length) return null
+  // 클릭된 페이지에 해당하는 rects 선택 (멀티 드래그 시 다른 페이지도 정확히 포지셔닝)
+  const displayRects = (() => {
+    if (displayPageIndex != null && annotation.rectGroups) {
+      const g = annotation.rectGroups.find((r) => r.pageIndex === displayPageIndex)
+      if (g?.rects?.length) return g.rects
+    }
+    return annotation.rects ?? []
+  })()
+
+  if (!containerSize || !displayRects.length) return null
 
   // 마지막 줄 rect 기준으로 팝업을 하이라이트 아래에 위치
-  const lastRect = annotation.rects[annotation.rects.length - 1]
+  const lastRect = displayRects[displayRects.length - 1]
   const POPUP_WIDTH = 260
   let top  = (lastRect.top + lastRect.height) * containerSize.height + 6 + dragOffset.y
-  let left = annotation.rects[0].left * containerSize.width + dragOffset.x
+  let left = displayRects[0].left * containerSize.width + dragOffset.x
   // 오른쪽 경계 초과 방지 (드래그 중에는 적용 안 함)
   if (dragOffset.x === 0) left = Math.min(left, containerSize.width - POPUP_WIDTH - 4)
 
@@ -208,11 +232,11 @@ export default function AnnotationPopup({
           </>
         )}
         <button
-          style={styles.deleteBtn}
-          onClick={() => onDelete?.(annotation.id)}
-          title="삭제"
+          style={confirmDelete ? styles.deleteBtnConfirm : styles.deleteBtn}
+          onClick={handleDeleteClick}
+          title={confirmDelete ? '한 번 더 클릭하면 삭제됩니다' : '삭제'}
         >
-          ×
+          {confirmDelete ? '삭제?' : '×'}
         </button>
       </div>
 
@@ -359,6 +383,11 @@ const styles = {
     fontSize: 16, color: '#ccc', cursor: 'pointer',
     padding: '0 2px', lineHeight: 1, flexShrink: 0,
     background: 'transparent', border: 'none',
+  },
+  deleteBtnConfirm: {
+    fontSize: 11, color: '#ef4444', cursor: 'pointer', fontWeight: 700,
+    padding: '2px 5px', lineHeight: 1, flexShrink: 0,
+    background: '#fff0f0', border: '1px solid #fca5a5', borderRadius: 4,
   },
   sourceText: {
     fontSize: 11, color: '#999', fontStyle: 'italic', lineHeight: 1.5,

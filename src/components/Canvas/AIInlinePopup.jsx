@@ -46,9 +46,7 @@ export default function AIInlinePopup({
       <div style={styles.header}>
         <span style={styles.icon}>💡</span>
         <span style={styles.title}>AI 즉시 설명</span>
-        {!isStreaming && (
-          <button style={styles.closeBtn} onClick={onClose}>×</button>
-        )}
+        <button style={styles.closeBtn} onClick={onClose}>×</button>
       </div>
 
       {/* 선택된 원문 */}

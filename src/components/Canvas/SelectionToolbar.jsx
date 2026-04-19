@@ -155,7 +155,7 @@ export default function SelectionToolbar({
     <div
       ref={ref}
       style={{ ...styles.container, top, left, transform }}
-      onPointerDown={(e) => e.preventDefault()}
+      onMouseDown={(e) => e.preventDefault()}
     >
       {/* 드래그 핸들 */}
       <div style={styles.dragHandle} onMouseDown={startDrag} onTouchStart={startTouchDrag} title="드래그하여 이동">⠿</div>
