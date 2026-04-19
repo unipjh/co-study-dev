@@ -326,7 +326,7 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
 function processSourceMarkers(text) {
   return text.replace(/\[(?:p\.\s*\d+[\s,，、]*)+\]/g, (match) => {
     const pages = [...match.matchAll(/\d+/g)].map((m) => m[0])
-    return pages.map((p) => `[p.${p}](page://${p})`).join(' ')
+    return pages.map((p) => `[p.${p}](#page-${p})`).join(' ')
   })
 }
 
@@ -359,8 +359,9 @@ function MarkdownContent({ children, onPageJump }) {
         h3:     ({ children }) => <div style={{ fontWeight: 600, fontSize: 13, margin: '4px 0 2px' }}>{children}</div>,
         // page:// 링크 → 페이지 이동 칩 버튼으로 렌더링
         a: ({ href, children: linkChildren }) => {
-          if (href?.startsWith('page://')) {
-            const page = Number(href.slice(7))
+          const pageMatch = href?.match(/^#page-(\d+)$/)
+          if (pageMatch) {
+            const page = Number(pageMatch[1])
             return (
               <button
                 style={styles.sourceChip}
