@@ -111,6 +111,80 @@ function getFlashLiteModel() {
   })
 }
 
+function extractJsonObject(text) {
+  const cleaned = text
+    .trim()
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```$/i, '')
+    .trim()
+  const start = cleaned.indexOf('{')
+  const end = cleaned.lastIndexOf('}')
+  if (start < 0 || end < start) throw new Error('학습 목표 JSON을 찾지 못했습니다.')
+  return JSON.parse(cleaned.slice(start, end + 1))
+}
+
+function normalizePageGoal(raw) {
+  const priority = ['low', 'medium', 'high'].includes(raw?.priority) ? raw.priority : 'medium'
+  const objectives = Array.isArray(raw?.objectives) ? raw.objectives.filter(Boolean).slice(0, 3) : []
+  const focusQuestions = Array.isArray(raw?.focusQuestions) ? raw.focusQuestions.filter(Boolean).slice(0, 2) : []
+  const keywords = Array.isArray(raw?.keywords) ? raw.keywords.filter(Boolean).slice(0, 6) : []
+  const mainObjective = String(raw?.mainObjective || objectives[0] || '').trim()
+
+  if (!mainObjective) throw new Error('학습 목표가 비어 있습니다.')
+
+  return {
+    mainObjective,
+    objectives,
+    focusQuestions,
+    keywords,
+    priority,
+  }
+}
+
+export async function generatePageGoal(pageText, pageIndex, neighborText = '') {
+  const text = String(pageText ?? '').trim()
+  if (text.length < 80) {
+    throw new Error('이 페이지는 목표를 만들 텍스트가 부족합니다.')
+  }
+
+  const model = getGenAI().getGenerativeModel({
+    model: 'gemini-2.5-flash-lite',
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.35 },
+    systemInstruction: `당신은 학습자가 PDF를 능동적으로 읽도록 돕는 한국어 학습 코치입니다.
+요약문을 쓰지 말고, 사용자가 이 페이지를 읽을 때 확인해야 할 사고 방향과 우선순위를 제시하세요.`,
+  })
+
+  const prompt = `다음 PDF ${pageIndex + 1}페이지를 읽기 전에 볼 핵심 학습 목표를 만드세요.
+
+규칙:
+- 한국어로만 작성하세요.
+- 내용을 대신 요약하지 말고, 읽을 때 확인해야 할 방향을 제시하세요.
+- 목표는 행동 동사로 시작하세요. 예: 구분하기, 설명하기, 연결하기, 표시하기, 비교하기.
+- mainObjective는 한 문장, 70자 이내로 작성하세요.
+- objectives는 최대 3개, focusQuestions는 최대 2개, keywords는 최대 6개입니다.
+- priority는 low, medium, high 중 하나입니다.
+- JSON 객체만 출력하세요.
+
+형식:
+{
+  "mainObjective": "...",
+  "objectives": ["...", "..."],
+  "focusQuestions": ["..."],
+  "keywords": ["..."],
+  "priority": "low|medium|high"
+}
+
+앞뒤 맥락:
+${neighborText.slice(0, 1200) || '(없음)'}
+
+현재 페이지 텍스트:
+${text.slice(0, 3200)}`
+
+  const result = await model.generateContent(prompt)
+  return normalizePageGoal(extractJsonObject(result.response.text()))
+}
+
 // Chat / 마인드맵 — 균형 모델
 function getFlashModel() {
   return getGenAI().getGenerativeModel({

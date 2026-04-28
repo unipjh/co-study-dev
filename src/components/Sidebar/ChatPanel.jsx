@@ -6,6 +6,7 @@ import 'katex/dist/katex.min.css'
 import useAI, { buildRagSystemInstruction, NO_CHUNK_FALLBACK } from '../AI/useAI'
 import useChat from '../../hooks/useChat'
 import useDocumentIndex from '../../hooks/useDocumentIndex'
+import usePageGoals from '../../hooks/usePageGoals'
 import { getDisplayColor } from '../../lib/colorUtils'
 import useDocumentStore from '../../store/documentStore'
 
@@ -43,7 +44,8 @@ function mergeChunks(semanticChunks, ...extras) {
 export default function ChatPanel({ docId, contextAnnotations = [], onClearContext, currentPage = 0 }) {
   const { messages, addMessage } = useChat(docId)
   const { chat } = useAI()
-  const { indexed, indexing, indexProgress, indexTotal, chunkCount, checkDone, indexError, pdfReady, buildIndex, search, getChunkByPage } = useDocumentIndex(docId)
+  const { indexed, search, getChunkByPage } = useDocumentIndex(docId)
+  const { getGoal } = usePageGoals(docId)
 
   const [input, setInput]             = useState('')
   const [streamingText, setStreamingText] = useState('')
@@ -163,49 +165,11 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
 
   const noDoc = !docId
   const hasContext = contextAnnotations.length > 0
+  const currentGoal = currentPage > 0 ? getGoal(currentPage - 1) : null
+  const suggestedQuestions = currentGoal?.focusQuestions?.filter(Boolean).slice(0, 2) ?? []
 
   return (
     <div style={styles.panel}>
-      {/* RAG 색인 상태 — 항상 표시 */}
-      <div style={styles.ragStatusBar}>
-        {!checkDone && (
-          <span style={styles.ragLabel}>⏳ 색인 확인 중…</span>
-        )}
-        {checkDone && indexing && (
-          <>
-            <div style={styles.ragProgressTrack}>
-              <div style={{
-                ...styles.ragProgressFill,
-                width: indexTotal > 0 ? `${(indexProgress / indexTotal) * 100}%` : '4%',
-              }} />
-            </div>
-            <span style={{ ...styles.ragLabel, color: '#6366f1' }}>
-              ⚙ 색인 생성 중 {indexProgress}/{indexTotal}p
-            </span>
-          </>
-        )}
-        {checkDone && indexed && !indexing && (
-          <span style={{ ...styles.ragLabel, color: '#16a34a' }}>
-            ✓ RAG 활성 — {chunkCount}p 색인됨
-          </span>
-        )}
-        {checkDone && !indexed && !indexing && !indexError && !pdfReady && (
-          <span style={styles.ragLabel}>⏳ PDF 로딩 대기 중…</span>
-        )}
-        {checkDone && !indexed && !indexing && !indexError && pdfReady && (
-          <span style={styles.ragLabel}>
-            ⚠ 색인 없음 (RAG 비활성)
-            <button style={styles.ragActionBtn} onClick={buildIndex}>색인 생성</button>
-          </span>
-        )}
-        {indexError && !indexing && (
-          <span style={{ ...styles.ragLabel, color: '#c00' }}>
-            ✕ 색인 실패: {indexError}
-            <button style={styles.ragActionBtn} onClick={buildIndex}>재시도</button>
-          </span>
-        )}
-      </div>
-
       {/* 맥락 배너 */}
       {hasContext ? (
         <div style={styles.contextBanner}>
@@ -263,6 +227,26 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
           <p style={styles.emptyContextHint}>
             아래 입력창에서 바로 질문하거나,<br />하이라이트 → '맥락 추가'로 맥락 기반 대화를 시작하세요
           </p>
+        </div>
+      )}
+
+      {suggestedQuestions.length > 0 && (
+        <div style={styles.suggestedQuestions}>
+          <span style={styles.suggestedLabel}>추천 질문</span>
+          <div style={styles.suggestedList}>
+            {suggestedQuestions.map((question) => (
+              <button
+                key={question}
+                type="button"
+                style={styles.suggestedBtn}
+                onClick={() => handleSend(question)}
+                disabled={isStreaming || noDoc}
+                title="Chat으로 바로 질문하기"
+              >
+                {question}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -407,50 +391,6 @@ const styles = {
     overflow: 'hidden',
     background: '#fafafa',
   },
-  // RAG 상태 바 (항상 표시)
-  ragStatusBar: {
-    padding: '5px 14px',
-    background: '#f8f8ff',
-    borderBottom: '1px solid #ebebff',
-    flexShrink: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 3,
-    minHeight: 26,
-    justifyContent: 'center',
-  },
-  ragLabel: {
-    fontSize: 10,
-    color: '#aaa',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 5,
-    lineHeight: 1.4,
-  },
-  ragProgressTrack: {
-    height: 2,
-    background: '#dde5ff',
-    borderRadius: 1,
-    overflow: 'hidden',
-    marginBottom: 1,
-  },
-  ragProgressFill: {
-    height: '100%',
-    background: '#6366f1',
-    borderRadius: 1,
-    transition: 'width 0.3s ease',
-  },
-  ragActionBtn: {
-    fontSize: 10,
-    padding: '2px 7px',
-    borderRadius: 4,
-    background: '#6366f1',
-    color: '#fff',
-    cursor: 'pointer',
-    fontWeight: 600,
-    border: 'none',
-    marginLeft: 4,
-  },
   // 맥락 배너
   contextBanner: {
     background: '#f0f0ff',
@@ -512,6 +452,37 @@ const styles = {
     flexShrink: 0,
   },
   emptyContextHint: { fontSize: 11, color: '#bbb', lineHeight: 1.6, textAlign: 'center' },
+  suggestedQuestions: {
+    padding: '9px 14px',
+    background: '#fff',
+    borderBottom: '1px solid #eeeeee',
+    flexShrink: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 7,
+  },
+  suggestedLabel: {
+    fontSize: 10,
+    color: '#6366f1',
+    fontWeight: 800,
+  },
+  suggestedList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 5,
+  },
+  suggestedBtn: {
+    width: '100%',
+    border: '1px solid #e0e0ff',
+    background: '#f8f8ff',
+    color: '#333',
+    borderRadius: 7,
+    padding: '7px 8px',
+    fontSize: 12,
+    lineHeight: 1.4,
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
   // 메시지 목록
   messageList: {
     flex: 1,

@@ -7,10 +7,12 @@ import useDocumentStore from '../../store/documentStore'
 import useAnnotation from '../../hooks/useAnnotation'
 import useAI, { buildRagSystemInstruction, NO_CHUNK_FALLBACK } from '../AI/useAI'
 import useDocumentIndex from '../../hooks/useDocumentIndex'
+import usePageGoals from '../../hooks/usePageGoals'
 import HighlightLayer from './HighlightLayer'
 import SelectionToolbar from './SelectionToolbar'
 import AnnotationPopup from './AnnotationPopup'
 import AIInlinePopup from './AIInlinePopup'
+import LearningGoalOverlay from './LearningGoalOverlay'
 
 function SelectionOverlay({ rects }) {
   if (!rects || rects.length === 0) return null
@@ -75,8 +77,29 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
 
   const { ask, response, isStreaming, reset } = useAI()
   const { search: searchIndex, getChunkByPage, indexing, indexed, indexProgress, indexTotal } = useDocumentIndex(docId)
+  const {
+    getGoal,
+    ensureGoal,
+    prefetchGoals,
+    toggleComplete: toggleGoalComplete,
+    regenerateGoal,
+    generatingByPage,
+    errorsByPage,
+  } = usePageGoals(docId)
 
   const pdfFile = useMemo(() => pdfBlob ?? null, [pdfBlob])
+  const currentPageIndex = Math.max(0, currentPage - 1)
+  const currentPageChunk = getChunkByPage(currentPageIndex)
+  const previousPageChunk = currentPageIndex > 0 ? getChunkByPage(currentPageIndex - 1) : null
+  const nextPageChunk = getChunkByPage(currentPageIndex + 1)
+  const currentGoal = getGoal(currentPageIndex)
+  const currentGoalLoading = !!generatingByPage[currentPageIndex]
+  const currentGoalError = errorsByPage[currentPageIndex]
+  const currentGoalUnavailable = indexed && !indexing && !currentPageChunk && !currentGoal
+  const goalNeighborText = [
+    previousPageChunk?.text ? `(이전 페이지) ${previousPageChunk.text.slice(0, 800)}` : '',
+    nextPageChunk?.text ? `(다음 페이지) ${nextPageChunk.text.slice(0, 800)}` : '',
+  ].filter(Boolean).join('\n\n')
 
   const [selection, setSelection]               = useState(null)
   const [dragRects, setDragRects]               = useState(null)
@@ -109,6 +132,38 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
   useEffect(() => {
     scrollToPageRef.current = currentPage
   }, [currentPage])
+
+  useEffect(() => {
+    if (!currentPageChunk?.text) return
+    ensureGoal(currentPageIndex, currentPageChunk.text, goalNeighborText)
+  }, [currentPageIndex, currentPageChunk?.text, goalNeighborText, ensureGoal])
+
+  useEffect(() => {
+    if (!indexed) return
+    const prefetchItems = []
+    if (previousPageChunk?.text) {
+      prefetchItems.push({
+        pageIndex: currentPageIndex - 1,
+        pageText: previousPageChunk.text,
+        neighborText: currentPageChunk?.text ?? '',
+      })
+    }
+    if (nextPageChunk?.text) {
+      prefetchItems.push({
+        pageIndex: currentPageIndex + 1,
+        pageText: nextPageChunk.text,
+        neighborText: currentPageChunk?.text ?? '',
+      })
+    }
+    prefetchGoals(prefetchItems)
+  }, [
+    indexed,
+    currentPageIndex,
+    currentPageChunk?.text,
+    previousPageChunk?.text,
+    nextPageChunk?.text,
+    prefetchGoals,
+  ])
 
   // 페이지 전환 시 AI 인라인 팝업 초기화
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -728,6 +783,19 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
 
   return (
     <div style={styles.canvasWrapper} ref={wrapperRef}>
+      <LearningGoalOverlay
+        goal={currentGoal}
+        loading={currentGoalLoading}
+        error={currentGoalError}
+        indexing={indexing}
+        indexProgress={indexProgress}
+        indexTotal={indexTotal}
+        unavailable={currentGoalUnavailable}
+        pageNumber={currentPage}
+        onToggleComplete={() => toggleGoalComplete(currentPageIndex)}
+        onRegenerate={() => regenerateGoal(currentPageIndex, currentPageChunk?.text ?? '', goalNeighborText)}
+      />
+
       <div
         ref={outerRef}
         style={outerStyle}
@@ -1022,14 +1090,16 @@ const styles = {
     flex: 1,
     overflow: 'hidden',
     display: 'flex',
+    flexDirection: 'column',
   },
   outer: {
     flex: 1,
     overflow: 'auto',
     background: '#e8e8e8',
     display: 'flex',
-    alignItems: 'flex-start',
-    justifyContent: 'center',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
     padding: 24,
   },
   hint: { color: '#aaa', fontSize: 15, alignSelf: 'center' },
