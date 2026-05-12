@@ -1,6 +1,7 @@
 import ChatPanel from './ChatPanel'
 import MemoPanel from './MemoPanel'
 import MindMapPanel from './MindMapPanel'
+import QuizPanel from './QuizPanel'
 
 /**
  * 우측 사이드 패널 — Chat / Memo / MindMap 탭 컨테이너
@@ -25,6 +26,7 @@ export default function SidePanel({
   contextAnnotations,
   onClearContext,
   onSendToChat,
+  quizSeed,
   activeTab,
   currentPage,
 }) {
@@ -50,6 +52,15 @@ export default function SidePanel({
       )}
       {activeTab === 'mindmap' && (
         <MindMapPanel docId={docId} />
+      )}
+      {activeTab === 'quiz' && (
+        <QuizPanel
+          docId={docId}
+          annotations={annotations}
+          currentPage={currentPage}
+          quizSeed={quizSeed}
+          onSendToChat={onSendToChat}
+        />
       )}
     </div>
   )

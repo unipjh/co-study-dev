@@ -178,6 +178,14 @@ export default function useDocumentIndex(docId) {
     return chunksRef.current.find((c) => c.pageIndex === pageIndex) ?? null
   }, [])
 
+  /**
+   * 현재 로드된 모든 페이지 청크 반환
+   * 학습 단위 생성처럼 문서 전체 페이지 흐름이 필요한 기능에서 사용한다.
+   */
+  const getAllChunks = useCallback(() => {
+    return [...chunksRef.current].sort((a, b) => a.pageIndex - b.pageIndex)
+  }, [])
+
   // PDF 로드 직후 자동 색인 — Firestore 확인이 끝나고 색인이 없을 때만 실행
   useEffect(() => {
     if (checkDone && !indexed && !indexing && !indexError && pdfBlob && uid && docId) {
@@ -187,5 +195,5 @@ export default function useDocumentIndex(docId) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkDone, indexed, indexing, indexError, pdfBlob])
 
-  return { indexed, indexing, indexProgress, indexTotal, chunkCount, checkDone, indexError, pdfReady: !!pdfBlob, buildIndex, search, getChunkByPage }
+  return { indexed, indexing, indexProgress, indexTotal, chunkCount, checkDone, indexError, pdfReady: !!pdfBlob, buildIndex, search, getChunkByPage, getAllChunks }
 }

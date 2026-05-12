@@ -142,6 +142,54 @@ function normalizePageGoal(raw) {
   }
 }
 
+function normalizeLearningUnitGoal(raw) {
+  const base = normalizePageGoal(raw)
+  const pageHints = raw?.pageHints && typeof raw.pageHints === 'object'
+    ? Object.fromEntries(
+        Object.entries(raw.pageHints)
+          .filter(([, value]) => typeof value === 'string' && value.trim())
+          .map(([key, value]) => [String(key), value.trim().slice(0, 90)])
+      )
+    : {}
+  return { ...base, pageHints }
+}
+
+function extractJsonArray(text) {
+  const cleaned = text
+    .trim()
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```$/i, '')
+    .trim()
+  const start = cleaned.indexOf('[')
+  const end = cleaned.lastIndexOf(']')
+  if (start < 0 || end < start) throw new Error('퀴즈 JSON을 찾지 못했습니다.')
+  return JSON.parse(cleaned.slice(start, end + 1))
+}
+
+function normalizeQuizItems(raw) {
+  const list = Array.isArray(raw) ? raw : []
+  return list
+    .map((item, index) => {
+      const type = ['multiple_choice', 'ox', 'short_answer'].includes(item?.type)
+        ? item.type
+        : 'short_answer'
+      const choices = Array.isArray(item?.choices)
+        ? item.choices.map((choice) => String(choice).trim()).filter(Boolean).slice(0, 4)
+        : []
+      return {
+        id: item?.id || `quiz_${Date.now()}_${index}`,
+        type,
+        question: String(item?.question || '').trim(),
+        choices: type === 'multiple_choice' ? choices : [],
+        answer: String(item?.answer || '').trim(),
+        explanation: String(item?.explanation || '').trim(),
+      }
+    })
+    .filter((item) => item.question && item.answer)
+    .slice(0, 6)
+}
+
 export async function generatePageGoal(pageText, pageIndex, neighborText = '') {
   const text = String(pageText ?? '').trim()
   if (text.length < 80) {
@@ -185,6 +233,98 @@ ${text.slice(0, 3200)}`
   return normalizePageGoal(extractJsonObject(result.response.text()))
 }
 
+export async function generateLearningUnitGoal(unit) {
+  const pages = Array.isArray(unit?.pages) ? unit.pages : []
+  const text = pages
+    .map((page) => `[p.${page.pageIndex + 1}]\n${String(page.text ?? '').trim().slice(0, 2200)}`)
+    .join('\n\n')
+    .trim()
+
+  if (text.length < 120) {
+    throw new Error('학습 단위 목표를 만들 텍스트가 부족합니다.')
+  }
+
+  const pageRange = `${unit.startPageIndex + 1}-${unit.endPageIndex + 1}p`
+  const model = getGenAI().getGenerativeModel({
+    model: 'gemini-2.5-flash-lite',
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.35 },
+    systemInstruction: `당신은 학습자가 PDF를 능동적으로 읽도록 돕는 한국어 학습 코치입니다.
+여러 페이지를 하나의 학습 흐름으로 보고, 중복 없는 학습 목표와 사고 질문을 만드세요.`,
+  })
+
+  const prompt = `다음 PDF ${pageRange} 구간을 하나의 학습 단위로 보고 오늘의 학습 목표를 만드세요.
+
+규칙:
+- 한국어로만 작성하세요.
+- 페이지별 요약을 반복하지 말고, 이 구간 전체를 관통하는 읽기 방향을 제시하세요.
+- mainObjective는 한 문장, 80자 이내로 작성하세요.
+- objectives는 최대 3개, focusQuestions는 최대 2개, keywords는 최대 6개입니다.
+- focusQuestions는 Chat 추천 질문으로 바로 쓸 수 있게 질문 문장으로 작성하세요.
+- pageHints는 각 페이지에서 특히 볼 지점을 짧게 작성하세요.
+- priority는 low, medium, high 중 하나입니다.
+- JSON 객체만 출력하세요.
+
+형식:
+{
+  "mainObjective": "...",
+  "objectives": ["...", "..."],
+  "focusQuestions": ["..."],
+  "keywords": ["..."],
+  "priority": "low|medium|high",
+  "pageHints": {
+    "${unit.startPageIndex}": "현재 페이지 포커스"
+  }
+}
+
+학습 단위 텍스트:
+${text.slice(0, 9000)}`
+
+  const result = await model.generateContent(prompt)
+  return normalizeLearningUnitGoal(extractJsonObject(result.response.text()))
+}
+
+export async function generateQuizItems(text, scopeLabel = '선택한 범위') {
+  const source = String(text ?? '').trim()
+  if (source.length < 40) {
+    throw new Error('퀴즈를 만들 텍스트가 부족합니다.')
+  }
+
+  const model = getGenAI().getGenerativeModel({
+    model: 'gemini-2.5-flash-lite',
+    generationConfig: { responseMimeType: 'application/json', temperature: 0.35 },
+    systemInstruction: `당신은 학생이 PDF 내용을 스스로 점검하도록 돕는 한국어 학습 코치입니다.
+반드시 제공된 텍스트에 근거해서만 퀴즈를 만들고, JSON 배열만 출력하세요.`,
+  })
+
+  const prompt = `다음 ${scopeLabel} 텍스트로 학습 퀴즈를 만드세요.
+
+규칙:
+- 한국어로 작성하세요.
+- 총 4문항을 만드세요.
+- multiple_choice 2개, ox 1개, short_answer 1개를 섞으세요.
+- multiple_choice는 choices 4개를 제공하고 answer에는 정답 선택지의 정확한 문자열을 넣으세요.
+- ox는 choices를 비우고 answer에는 O 또는 X만 넣으세요.
+- explanation은 왜 정답인지 1-2문장으로 설명하세요.
+- JSON 배열만 출력하세요.
+
+형식:
+[
+  {
+    "id": "q1",
+    "type": "multiple_choice|ox|short_answer",
+    "question": "...",
+    "choices": ["...", "...", "...", "..."],
+    "answer": "...",
+    "explanation": "..."
+  }
+]
+
+텍스트:
+${source.slice(0, 9000)}`
+
+  const result = await model.generateContent(prompt)
+  return normalizeQuizItems(extractJsonArray(result.response.text()))
+}
 // Chat / 마인드맵 — 균형 모델
 function getFlashModel() {
   return getGenAI().getGenerativeModel({
@@ -348,5 +488,5 @@ JSON 배열 형식으로만 출력하세요:
     setError(null)
   }, [abort])
 
-  return { response, isStreaming, error, ask, abort, reset, chat, generateMindMap }
+  return { response, isStreaming, error, ask, abort, reset, chat, generateMindMap, generateQuizItems }
 }

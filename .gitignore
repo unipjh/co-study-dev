@@ -2,6 +2,8 @@ node_modules
 dist
 .env
 .env.local
+vite-dev*.log
+.playwright-mcp/
 
 docs/
 CLAUDE.md

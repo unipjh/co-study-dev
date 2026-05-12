@@ -26,6 +26,7 @@ export default function ViewerPage() {
   const [contextAnnotations, setContextAnnotations]  = useState([])
   const [thumbnailOpen,      setThumbnailOpen]       = useState(false)
   const [loadError,          setLoadError]           = useState(null)
+  const [quizSeed,           setQuizSeed]            = useState(null)
   const [sidebarWidth,       setSidebarWidth]        = useState(SIDEBAR_DEFAULT)
   const [viewportWidth,      setViewportWidth]       = useState(() => window.innerWidth)
   const [retryCount,         setRetryCount]          = useState(0)
@@ -33,29 +34,36 @@ export default function ViewerPage() {
   const prevSidebarWidthRef = useRef(SIDEBAR_DEFAULT)
   const toastTimerRef = useRef(null)
 
-  const { annotations, remove: removeAnnotation } = useAnnotation(docId)
+  const {
+    annotations,
+    remove: removeAnnotation,
+    undoLast,
+    lastUndoAction,
+    undoBusy,
+  } = useAnnotation(docId)
   const isMobile = viewportWidth < 700
 
   // [B3] 주석이 삭제되면 stale contextAnnotations 자동 정리 (동일 ref 반환으로 루프 방지)
   useEffect(() => {
     const ids = new Set(annotations.map((a) => a.id))
     setContextAnnotations((prev) => {
-      if (prev.every((a) => ids.has(a.id))) return prev
-      return prev.filter((a) => ids.has(a.id))
+      if (prev.every((a) => a.transient || ids.has(a.id))) return prev
+      return prev.filter((a) => a.transient || ids.has(a.id))
     })
   }, [annotations])
 
   // 마인드맵 탭 전환 시 사이드바 5:5 자동 조정
   useEffect(() => {
+    if (isMobile) return
     if (activeTab === 'mindmap') {
       prevSidebarWidthRef.current = sidebarWidth
-      setSidebarWidth(Math.floor(window.innerWidth / 2))
+      setSidebarWidth(Math.min(SIDEBAR_MAX, Math.floor(window.innerWidth / 2)))
     } else {
       setSidebarWidth(prevSidebarWidthRef.current)
     }
   // sidebarWidth는 의존성에서 제외 (전환 시점의 값만 스냅샷)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab])
+  }, [activeTab, isMobile])
 
   // ── 사이드바 너비 드래그 리사이즈 ─────────────────────────────
   const isDraggingRef = useRef(false)
@@ -139,11 +147,20 @@ export default function ViewerPage() {
   }, [docId, uid, retryCount])
 
   // [B1] 토스트 표시 헬퍼
-  function showToast(message) {
+  function showToast(message, action = null) {
     clearTimeout(toastTimerRef.current)
-    setToast(message)
+    setToast({ message, action })
     toastTimerRef.current = setTimeout(() => setToast(null), 3000)
   }
+
+  useEffect(() => {
+    if (!lastUndoAction) return
+    showToast(lastUndoAction.message, {
+      label: lastUndoAction.undoLabel ?? '실행 취소',
+      onClick: undoLast,
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastUndoAction?.id])
 
   // [A1] 탭 변경 시 사이드바 항상 열기
   function handleTabChange(tab) {
@@ -158,6 +175,12 @@ export default function ViewerPage() {
     setActiveTab('chat')
     setSidebarOpen(true)
     showToast('맥락이 Chat에 추가되었습니다')
+  }
+
+  function handleCreateQuiz(seed) {
+    setQuizSeed({ ...seed, requestId: Date.now() })
+    setActiveTab('quiz')
+    setSidebarOpen(true)
   }
 
   function handleClearContext(id) {
@@ -201,6 +224,7 @@ export default function ViewerPage() {
         <DocumentCanvas
           docId={docId}
           onSendToChat={handleSendToChat}
+          onCreateQuiz={handleCreateQuiz}
           activeTab={activeTab}
           onTabChange={handleTabChange}
           sidebarOpen={sidebarOpen}
@@ -215,7 +239,7 @@ export default function ViewerPage() {
             {/* 데스크탑만 리사이즈 핸들 */}
             {!isMobile && (
               <div
-                style={styles.resizer}
+                style={{ ...styles.resizer, right: sidebarWidth }}
                 onMouseDown={handleResizerMouseDown}
                 onTouchStart={handleResizerTouchStart}
                 title="드래그하여 너비 조정"
@@ -225,6 +249,15 @@ export default function ViewerPage() {
               ? { ...styles.sidebarWrapperMobile, width: Math.min(sidebarWidth, Math.round(viewportWidth * 0.85)) }
               : { ...styles.sidebarWrapper, width: sidebarWidth }
             }>
+              {isMobile && (
+                <button
+                  type="button"
+                  style={styles.panelCloseBtn}
+                  onClick={() => setSidebarOpen(false)}
+                >
+                  닫기
+                </button>
+              )}
               <SidePanel
                 docId={docId}
                 annotations={annotations}
@@ -235,6 +268,7 @@ export default function ViewerPage() {
                 contextAnnotations={contextAnnotations}
                 onClearContext={handleClearContext}
                 onSendToChat={handleSendToChat}
+                quizSeed={quizSeed}
                 activeTab={activeTab}
                 onTabChange={handleTabChange}
                 currentPage={currentPage}
@@ -245,7 +279,21 @@ export default function ViewerPage() {
 
         {/* [B1] 토스트 알림 */}
         {toast && (
-          <div style={styles.toast}>{toast}</div>
+          <div style={styles.toast}>
+            <span>{toast.message}</span>
+            {toast.action && (
+              <button
+                style={styles.toastAction}
+                onClick={async () => {
+                  const ok = await toast.action.onClick?.()
+                  if (ok !== false) setToast(null)
+                }}
+                disabled={undoBusy}
+              >
+                {toast.action.label}
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -257,19 +305,25 @@ const styles = {
   body: { flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' },
   resizer: {
     width: 5,
-    flexShrink: 0,
     cursor: 'col-resize',
-    background: 'transparent',
-    position: 'relative',
-    zIndex: 5,
+    background: 'rgba(255,255,255,0.01)',
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    zIndex: 25,
     transition: 'background 0.15s',
     '&:hover': { background: 'rgba(99,102,241,0.25)' },
   },
   sidebarWrapper: {
-    flexShrink: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    zIndex: 20,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
+    boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
   },
   sidebarWrapperMobile: {
     position: 'absolute',
@@ -279,6 +333,21 @@ const styles = {
     flexDirection: 'column',
     overflow: 'hidden',
     boxShadow: '-4px 0 24px rgba(0,0,0,0.18)',
+  },
+  panelCloseBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 10,
+    zIndex: 2,
+    border: '1px solid #e0e0e0',
+    background: 'rgba(255,255,255,0.92)',
+    color: '#333',
+    borderRadius: 7,
+    padding: '4px 8px',
+    fontSize: 12,
+    fontWeight: 800,
+    cursor: 'pointer',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
   },
   backdrop: {
     position: 'absolute',
@@ -314,5 +383,19 @@ const styles = {
     pointerEvents: 'none',
     zIndex: 100,
     whiteSpace: 'nowrap',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+  },
+  toastAction: {
+    pointerEvents: 'auto',
+    border: '1px solid rgba(255,255,255,0.45)',
+    background: 'rgba(255,255,255,0.12)',
+    color: '#fff',
+    borderRadius: 999,
+    padding: '3px 8px',
+    fontSize: 11,
+    fontWeight: 800,
+    cursor: 'pointer',
   },
 }

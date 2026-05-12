@@ -55,7 +55,7 @@ export default function TopToolbar({ onHome, onPageLabelClick }) {
 
 const styles = {
   bar: {
-    height: 48,
+    minHeight: 48,
     background: '#fff',
     borderBottom: '1px solid #e0e0e0',
     display: 'flex',
@@ -63,10 +63,11 @@ const styles = {
     padding: '0 16px',
     gap: 12,
     flexShrink: 0,
+    overflow: 'hidden',
   },
-  left: { display: 'flex', alignItems: 'center', gap: 8, flex: 1 },
-  center: { display: 'flex', alignItems: 'center', gap: 4 },
-  right: { display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'flex-end' },
+  left: { display: 'flex', alignItems: 'center', gap: 8, flex: '1 1 0', minWidth: 0 },
+  center: { display: 'flex', alignItems: 'center', gap: 4, flex: '0 1 auto', minWidth: 0, overflowX: 'auto', scrollbarWidth: 'none' },
+  right: { display: 'flex', alignItems: 'center', gap: 8, flex: '0 0 0', minWidth: 0, justifyContent: 'flex-end' },
   homeBtn: {
     padding: '4px 10px',
     background: '#f0f0f0',
@@ -76,13 +77,14 @@ const styles = {
     fontSize: 15,
     fontWeight: 600,
   },
-  fileName: { fontSize: 13, color: '#666', maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  iconBtn: { padding: '4px 8px', borderRadius: 4, fontSize: 13, color: '#1a1a1a', background: '#f0f0f0' },
-  zoomLabel: { minWidth: 36, textAlign: 'center', fontSize: 13 },
+  fileName: { fontSize: 13, color: '#666', maxWidth: 200, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+  iconBtn: { padding: '4px 8px', borderRadius: 4, fontSize: 13, color: '#1a1a1a', background: '#f0f0f0', flexShrink: 0 },
+  zoomLabel: { minWidth: 36, textAlign: 'center', fontSize: 13, flexShrink: 0 },
   pageLabel: {
     minWidth: 56, textAlign: 'center', fontSize: 13,
     padding: '4px 8px', borderRadius: 4,
     background: '#f0f0f0', color: '#1a1a1a', cursor: 'pointer',
+    flexShrink: 0,
   },
   divider: { width: 1, height: 20, background: '#e0e0e0', margin: '0 4px' },
 }

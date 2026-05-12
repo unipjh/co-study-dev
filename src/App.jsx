@@ -5,7 +5,7 @@ import ViewerPage from './pages/ViewerPage'
 import LoginPage from './pages/LoginPage'
 
 export default function App() {
-  const { user, loading, signIn } = useAuth()
+  const { user, loading, signIn, signInDev, devAuthEnabled } = useAuth()
 
   if (loading) {
     return (
@@ -15,7 +15,7 @@ export default function App() {
     )
   }
 
-  if (!user) return <LoginPage onSignIn={signIn} />
+  if (!user) return <LoginPage onSignIn={signIn} onDevSignIn={signInDev} devAuthEnabled={devAuthEnabled} />
 
   return (
     <Routes>

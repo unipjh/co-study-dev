@@ -7,9 +7,12 @@ import useDocumentStore from '../../store/documentStore'
 import useAnnotation from '../../hooks/useAnnotation'
 import useAI, { buildRagSystemInstruction, NO_CHUNK_FALLBACK } from '../AI/useAI'
 import useDocumentIndex from '../../hooks/useDocumentIndex'
-import usePageGoals from '../../hooks/usePageGoals'
+import useLearningUnits from '../../hooks/useLearningUnits'
+import { buildLearningUnitsFromChunks, findUnitForPage } from '../../lib/learningUnits'
 import HighlightLayer from './HighlightLayer'
 import SelectionToolbar from './SelectionToolbar'
+import SelectionActionPopup from './SelectionActionPopup'
+import ContextMenu from './ContextMenu'
 import AnnotationPopup from './AnnotationPopup'
 import AIInlinePopup from './AIInlinePopup'
 import LearningGoalOverlay from './LearningGoalOverlay'
@@ -66,48 +69,52 @@ const SIDEBAR_TABS = [
   { key: 'chat',    label: 'Chat' },
   { key: 'memo',    label: 'Memo' },
   { key: 'mindmap', label: 'Map' },
+  { key: 'quiz',    label: 'Quiz' },
 ]
 
-export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabChange, sidebarOpen, onSidebarToggle }) {
+export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, activeTab, onTabChange, sidebarOpen, onSidebarToggle }) {
   const { pdfBlob, currentPage, numPages, zoomLevel, viewMode, selectionMode, setNumPages, setCurrentPage, setViewMode, setSelectionMode } =
     useDocumentStore()
 
-  const { annotations, add: addAnnotation, update: updateAnnotation, remove: removeAnnotation } =
+  const { annotations, add: addAnnotation, update: updateAnnotation, remove: removeAnnotation, undoLast } =
     useAnnotation(docId)
 
   const { ask, response, isStreaming, reset } = useAI()
-  const { search: searchIndex, getChunkByPage, indexing, indexed, indexProgress, indexTotal } = useDocumentIndex(docId)
+  const { search: searchIndex, getChunkByPage, getAllChunks, indexing, indexed, indexProgress, indexTotal, chunkCount } = useDocumentIndex(docId)
   const {
-    getGoal,
-    ensureGoal,
-    prefetchGoals,
-    toggleComplete: toggleGoalComplete,
-    regenerateGoal,
-    generatingByPage,
-    errorsByPage,
-  } = usePageGoals(docId)
+    getUnitForPage,
+    ensureUnitForPage,
+    prefetchUnitsAroundPage,
+    toggleUnitComplete,
+    regenerateUnit,
+    generatingByUnit,
+    errorsByUnit,
+  } = useLearningUnits(docId)
 
   const pdfFile = useMemo(() => pdfBlob ?? null, [pdfBlob])
   const currentPageIndex = Math.max(0, currentPage - 1)
-  const currentPageChunk = getChunkByPage(currentPageIndex)
-  const previousPageChunk = currentPageIndex > 0 ? getChunkByPage(currentPageIndex - 1) : null
-  const nextPageChunk = getChunkByPage(currentPageIndex + 1)
-  const currentGoal = getGoal(currentPageIndex)
-  const currentGoalLoading = !!generatingByPage[currentPageIndex]
-  const currentGoalError = errorsByPage[currentPageIndex]
-  const currentGoalUnavailable = indexed && !indexing && !currentPageChunk && !currentGoal
-  const goalNeighborText = [
-    previousPageChunk?.text ? `(이전 페이지) ${previousPageChunk.text.slice(0, 800)}` : '',
-    nextPageChunk?.text ? `(다음 페이지) ${nextPageChunk.text.slice(0, 800)}` : '',
-  ].filter(Boolean).join('\n\n')
+  const allChunks = useMemo(() => indexed ? getAllChunks() : [], [indexed, chunkCount, getAllChunks])
+  const candidateUnits = useMemo(() => buildLearningUnitsFromChunks(allChunks), [allChunks])
+  const currentCandidateUnit = findUnitForPage(candidateUnits, currentPageIndex)
+  const currentUnit = getUnitForPage(currentPageIndex)
+  const currentUnitId = currentUnit?.id ?? currentCandidateUnit?.id ?? null
+  const currentGoalLoading = currentUnitId ? !!generatingByUnit[currentUnitId] : false
+  const currentGoalError = currentUnitId ? errorsByUnit[currentUnitId] : null
+  const currentGoalUnavailable = indexed && !indexing && !currentCandidateUnit && !currentUnit
+  const currentPageHint = currentUnit?.pageHints?.[String(currentPageIndex)] ?? currentUnit?.pageHints?.[currentPageIndex]
+  const currentPageRange = currentUnit || currentCandidateUnit
+    ? `${(currentUnit ?? currentCandidateUnit).startPageIndex + 1}-${(currentUnit ?? currentCandidateUnit).endPageIndex + 1}p`
+    : `${currentPage}p`
 
   const [selection, setSelection]               = useState(null)
+  const [memoToolbarOpen, setMemoToolbarOpen]   = useState(false)
   const [dragRects, setDragRects]               = useState(null)
   const [activeAnnotation, setActiveAnnotation] = useState(null)
   const [activeAnnotationPage, setActiveAnnotationPage] = useState(null)
   const [containerSize, setContainerSize]       = useState(null)
   const [aiState, setAiState]                   = useState(null)
   const [regionError, setRegionError]           = useState(null)
+  const [contextMenu, setContextMenu]           = useState(null)
   // 멀티 드래그 누적 그룹
   const [pendingGroups, setPendingGroups]       = useState([])
   const [wrapperWidth, setWrapperWidth]         = useState(800)
@@ -134,36 +141,14 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
   }, [currentPage])
 
   useEffect(() => {
-    if (!currentPageChunk?.text) return
-    ensureGoal(currentPageIndex, currentPageChunk.text, goalNeighborText)
-  }, [currentPageIndex, currentPageChunk?.text, goalNeighborText, ensureGoal])
+    if (!indexed || allChunks.length === 0) return
+    ensureUnitForPage(currentPageIndex, allChunks)
+  }, [indexed, allChunks, currentPageIndex, ensureUnitForPage])
 
   useEffect(() => {
-    if (!indexed) return
-    const prefetchItems = []
-    if (previousPageChunk?.text) {
-      prefetchItems.push({
-        pageIndex: currentPageIndex - 1,
-        pageText: previousPageChunk.text,
-        neighborText: currentPageChunk?.text ?? '',
-      })
-    }
-    if (nextPageChunk?.text) {
-      prefetchItems.push({
-        pageIndex: currentPageIndex + 1,
-        pageText: nextPageChunk.text,
-        neighborText: currentPageChunk?.text ?? '',
-      })
-    }
-    prefetchGoals(prefetchItems)
-  }, [
-    indexed,
-    currentPageIndex,
-    currentPageChunk?.text,
-    previousPageChunk?.text,
-    nextPageChunk?.text,
-    prefetchGoals,
-  ])
+    if (!indexed || allChunks.length === 0) return
+    prefetchUnitsAroundPage(currentPageIndex, allChunks)
+  }, [indexed, allChunks, currentPageIndex, prefetchUnitsAroundPage])
 
   // 페이지 전환 시 AI 인라인 팝업 초기화
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -184,6 +169,50 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
     prevViewModeRef.current = viewMode
   }, [viewMode])
 
+  useEffect(() => {
+    if (viewMode !== 'scroll') return
+    const root = outerRef.current
+    if (!root) return
+
+    let frame = null
+    function updateCurrentPageFromScroll() {
+      frame = null
+      const rootRect = root.getBoundingClientRect()
+      const centerY = rootRect.top + rootRect.height / 2
+      let best = null
+
+      for (const [idx, el] of Object.entries(pageRefs.current)) {
+        if (!el) continue
+        const rect = el.getBoundingClientRect()
+        if (rect.bottom < rootRect.top || rect.top > rootRect.bottom) continue
+        const pageCenterY = rect.top + rect.height / 2
+        const distance = Math.abs(pageCenterY - centerY)
+        if (!best || distance < best.distance) {
+          best = { pageIndex: Number(idx), distance }
+        }
+      }
+
+      if (best && best.pageIndex + 1 !== scrollToPageRef.current) {
+        setCurrentPage(best.pageIndex + 1)
+      }
+    }
+
+    function scheduleUpdate() {
+      if (frame != null) return
+      frame = requestAnimationFrame(updateCurrentPageFromScroll)
+    }
+
+    root.addEventListener('scroll', scheduleUpdate, { passive: true })
+    window.addEventListener('resize', scheduleUpdate)
+    scheduleUpdate()
+
+    return () => {
+      root.removeEventListener('scroll', scheduleUpdate)
+      window.removeEventListener('resize', scheduleUpdate)
+      if (frame != null) cancelAnimationFrame(frame)
+    }
+  }, [viewMode, numPages, zoomLevel, setCurrentPage])
+
   // ── canvasWrapper 너비 감지 (하단 바 스케일용) ───────────────
   useEffect(() => {
     const el = wrapperRef.current
@@ -197,6 +226,29 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
   useEffect(() => {
     function handleKeyDown(e) {
       const ARROW_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
+      const tag = document.activeElement?.tagName?.toLowerCase()
+      const isTextInput = tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable
+
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z' && !isTextInput) {
+        e.preventDefault()
+        undoLast?.()
+        return
+      }
+
+      if (e.key === 'Escape') {
+        if (selection || dragRects || pendingGroups.length > 0 || activeAnnotation || aiState || contextMenu) {
+          e.preventDefault()
+          setContextMenu(null)
+          handleSelectionClose()
+          setActiveAnnotation(null)
+          setActiveAnnotationPage(null)
+          if (aiState) {
+            setAiState(null)
+            reset()
+          }
+        }
+        return
+      }
       // Shift+Arrow: 브라우저 표준처럼 선택 끝점 확장/축소
       if (e.shiftKey && selection && ARROW_KEYS.includes(e.key)) {
         e.preventDefault()
@@ -224,15 +276,20 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
         }
         if (container) {
           const info = extractSelection(container, selPageIndex)
-          if (info) setSelection(info)
-          else { setSelection(null); setDragRects(null) }
+          if (info) {
+            setSelection(info)
+            setMemoToolbarOpen(false)
+          } else {
+            setSelection(null)
+            setMemoToolbarOpen(false)
+            setDragRects(null)
+          }
         }
         return
       }
       // page 모드 방향키 전환 (shift 없을 때)
       if (viewMode !== 'page' || e.shiftKey) return
-      const tag = document.activeElement?.tagName?.toLowerCase()
-      if (tag === 'input' || tag === 'textarea') return
+      if (isTextInput) return
       if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
         e.preventDefault()
         const next = Math.max(1, (targetPageRef.current ?? currentPage) - 1)
@@ -255,7 +312,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [viewMode, currentPage, numPages, setCurrentPage, selection])
+  }, [viewMode, currentPage, numPages, setCurrentPage, selection, dragRects, pendingGroups.length, activeAnnotation, aiState, contextMenu, undoLast, reset])
 
   // ── 터치 팬 + 핀치 줌 ────────────────────────────────────────
   useEffect(() => {
@@ -421,6 +478,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
       setActiveAnnotation(null)
       setAiState(null)
       setSelection(info)
+      setMemoToolbarOpen(false)
     } else {
       setDragRects(null)
     }
@@ -602,6 +660,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
     addAnnotation(groups, color, content)
     window.getSelection()?.removeAllRanges()
     setSelection(null)
+    setMemoToolbarOpen(false)
     setPendingGroups([])
   }
 
@@ -611,6 +670,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
     window.getSelection()?.removeAllRanges()
     setPendingGroups((prev) => [...prev, selection])
     setSelection(null)
+    setMemoToolbarOpen(false)
     setDragRects(null)
   }
 
@@ -628,6 +688,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
   function handleSoftClose() {
     window.getSelection()?.removeAllRanges()
     setSelection(null)
+    setMemoToolbarOpen(false)
     setDragRects(null)
   }
 
@@ -635,8 +696,80 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
   function handleSelectionClose() {
     window.getSelection()?.removeAllRanges()
     setSelection(null)
+    setMemoToolbarOpen(false)
     setDragRects(null)
     setPendingGroups([])
+  }
+
+  function buildSelectionContext() {
+    if (!selection) return null
+    const groups = [...pendingGroups, selection]
+    const first = groups[0]
+    const text = groups.map((g) => g.text).filter(Boolean).join(' / ')
+
+    return {
+      id: `selection_${Date.now()}`,
+      docId,
+      pageIndex: first.pageIndex,
+      text,
+      color: 'blue',
+      content: '',
+      type: 'selection',
+      rects: first.rects ?? [],
+      rectGroups: groups.length > 1
+        ? groups.map((g) => ({
+            pageIndex: g.pageIndex,
+            rects: g.rects ?? [],
+            text: g.text,
+          }))
+        : undefined,
+      transient: true,
+      createdAt: new Date().toISOString(),
+    }
+  }
+
+  function handleSendSelectionToChat() {
+    const context = buildSelectionContext()
+    if (!context) return
+    onSendToChat?.(context)
+    handleSelectionClose()
+  }
+
+  function handleCreateQuizFromSelection() {
+    const context = buildSelectionContext()
+    if (!context) return
+    onCreateQuiz?.({
+      scope: 'selection',
+      title: '선택 텍스트',
+      pageIndex: context.pageIndex,
+      text: context.text,
+    })
+    handleSelectionClose()
+  }
+
+  function handleCreateQuizFromPage(pageIndex = currentPage - 1) {
+    onCreateQuiz?.({
+      scope: 'page',
+      title: `${pageIndex + 1}p`,
+      pageIndex,
+    })
+  }
+
+  function handleContextMenu(e, pageIndex = currentPage - 1) {
+    if (selectionMode === 'region') return
+    e.preventDefault()
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      pageIndex,
+      mode: selection ? 'selection' : 'page',
+    })
+  }
+
+  function handleOuterPointerDown(e) {
+    if (e.target === outerRef.current && (selection || dragRects || pendingGroups.length > 0)) {
+      handleSelectionClose()
+    }
   }
 
   // ── 영역 선택 이미지 캡처 (pdf.js 캔버스 크롭) ───────────────
@@ -696,6 +829,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
 
   function handleAnnotationClick(ann, pageIdx) {
     setSelection(null)
+    setMemoToolbarOpen(false)
     setDragRects(null)
     setActiveAnnotation(ann)
     setActiveAnnotationPage(pageIdx ?? ann.pageIndex)
@@ -707,6 +841,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
     setAiState({ selectionInfo: saved })
     window.getSelection()?.removeAllRanges()
     setSelection(null)
+    setMemoToolbarOpen(false)
     setDragRects(null)
     setPendingGroups([])
     reset()
@@ -784,7 +919,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
   return (
     <div style={styles.canvasWrapper} ref={wrapperRef}>
       <LearningGoalOverlay
-        goal={currentGoal}
+        goal={currentUnit}
         loading={currentGoalLoading}
         error={currentGoalError}
         indexing={indexing}
@@ -792,8 +927,10 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
         indexTotal={indexTotal}
         unavailable={currentGoalUnavailable}
         pageNumber={currentPage}
-        onToggleComplete={() => toggleGoalComplete(currentPageIndex)}
-        onRegenerate={() => regenerateGoal(currentPageIndex, currentPageChunk?.text ?? '', goalNeighborText)}
+        pageRange={currentPageRange}
+        pageHint={currentPageHint}
+        onToggleComplete={() => toggleUnitComplete(currentUnit?.id)}
+        onRegenerate={() => regenerateUnit(currentUnit?.id, allChunks)}
       />
 
       <div
@@ -801,6 +938,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
         style={outerStyle}
         onMouseUp={handleMouseUp}
         onMouseDown={handlePanMouseDown}
+        onPointerDown={handleOuterPointerDown}
       >
         <Document
           file={pdfFile}
@@ -813,6 +951,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
               style={styles.pageWrapper}
               ref={pageContainerRef}
               onClick={(e) => handleTripleClick(e, currentPage - 1, pageContainerRef.current)}
+              onContextMenu={(e) => handleContextMenu(e, currentPage - 1)}
             >
               <Page
                 pageNumber={currentPage}
@@ -877,6 +1016,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
                   }}
                   style={{ ...styles.pageWrapper, marginBottom: 16 }}
                   onClick={(e) => handleTripleClick(e, i, pageRefs.current[i])}
+                  onContextMenu={(e) => handleContextMenu(e, i)}
                 >
                   <Page
                     pageNumber={i + 1}
@@ -958,7 +1098,7 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
       )}
 
       {/* 하단 플로팅 컨트롤 바 */}
-      <div style={{ ...styles.bottomBar, transform: `translateX(-50%) scale(${Math.min(1, Math.max(0.65, wrapperWidth / 550))})` }}>
+      <div style={styles.bottomBar}>
         <button
           title="페이지 뷰"
           style={{ ...styles.barBtn, ...(viewMode === 'page' ? styles.barBtnActive : {}) }}
@@ -1053,7 +1193,19 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
         })}
       </div>
 
-      {selection && (
+      {selection && !memoToolbarOpen && (
+        <SelectionActionPopup
+          viewportRect={selection.viewportRect}
+          isRegion={!!selection.isRegion}
+          onMemo={() => setMemoToolbarOpen(true)}
+          onSendToChat={selection.isRegion ? handleSendImageToChat : handleSendSelectionToChat}
+          onAITutor={handleAITutor}
+          onCreateQuiz={handleCreateQuizFromSelection}
+          onCancel={handleSelectionClose}
+        />
+      )}
+
+      {selection && memoToolbarOpen && (
         <SelectionToolbar
           viewportRect={selection.viewportRect}
           onSave={handleSelectionSave}
@@ -1066,6 +1218,23 @@ export default function DocumentCanvas({ docId, onSendToChat, activeTab, onTabCh
           onRemovePending={handleRemovePending}
           isRegion={!!selection.isRegion}
           onSendImageToChat={handleSendImageToChat}
+          onSendSelectionToChat={handleSendSelectionToChat}
+        />
+      )}
+
+      {contextMenu && (
+        <ContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          mode={contextMenu.mode}
+          onClose={() => setContextMenu(null)}
+          onMemo={() => setMemoToolbarOpen(true)}
+          onSendToChat={handleSendSelectionToChat}
+          onCreateQuiz={contextMenu.mode === 'selection'
+            ? handleCreateQuizFromSelection
+            : () => handleCreateQuizFromPage(contextMenu.pageIndex)}
+          onShowMemos={() => onTabChange?.('memo')}
+          onCancelSelection={handleSelectionClose}
         />
       )}
 
@@ -1096,10 +1265,7 @@ const styles = {
     flex: 1,
     overflow: 'auto',
     background: '#e8e8e8',
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'flex-start',
+    display: 'block',
     padding: 24,
   },
   hint: { color: '#aaa', fontSize: 15, alignSelf: 'center' },
@@ -1121,7 +1287,9 @@ const styles = {
   loadingText: { color: '#aaa', fontSize: 13 },
   pageWrapper: {
     position: 'relative',
-    display: 'inline-block',
+    display: 'block',
+    width: 'fit-content',
+    margin: '0 auto',
     boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
   },
   regionErrorToast: {
@@ -1143,9 +1311,10 @@ const styles = {
     position: 'absolute',
     bottom: 20,
     left: '50%',
+    transform: 'translateX(-50%)',
     // transform은 인라인에서 동적으로 설정
     transformOrigin: 'center bottom',
-    zIndex: 10,
+    zIndex: 30,
     display: 'flex',
     alignItems: 'center',
     gap: 2,
@@ -1157,6 +1326,9 @@ const styles = {
     userSelect: 'none',
     whiteSpace: 'nowrap',
     flexWrap: 'nowrap',
+    maxWidth: 'calc(100% - 24px)',
+    overflowX: 'auto',
+    scrollbarWidth: 'none',
   },
   barBtn: {
     padding: '4px 10px',

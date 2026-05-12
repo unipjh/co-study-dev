@@ -98,10 +98,23 @@ export default function AnnotationPopup({
   // 마지막 줄 rect 기준으로 팝업을 하이라이트 아래에 위치
   const lastRect = displayRects[displayRects.length - 1]
   const POPUP_WIDTH = 260
+  const POPUP_MIN_MARGIN = 4
+  const POPUP_ESTIMATED_HEIGHT = editing ? 285 : 235
   let top  = (lastRect.top + lastRect.height) * containerSize.height + 6 + dragOffset.y
   let left = displayRects[0].left * containerSize.width + dragOffset.x
   // 오른쪽 경계 초과 방지 (드래그 중에는 적용 안 함)
-  if (dragOffset.x === 0) left = Math.min(left, containerSize.width - POPUP_WIDTH - 4)
+  if (dragOffset.x === 0) {
+    left = Math.max(
+      POPUP_MIN_MARGIN,
+      Math.min(left, containerSize.width - POPUP_WIDTH - POPUP_MIN_MARGIN)
+    )
+  }
+  if (dragOffset.y === 0) {
+    top = Math.max(
+      POPUP_MIN_MARGIN,
+      Math.min(top, Math.max(POPUP_MIN_MARGIN, containerSize.height - POPUP_ESTIMATED_HEIGHT))
+    )
+  }
 
   function handleSave() {
     onUpdate?.(annotation.id, { content })

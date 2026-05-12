@@ -6,7 +6,7 @@ import 'katex/dist/katex.min.css'
 import useAI, { buildRagSystemInstruction, NO_CHUNK_FALLBACK } from '../AI/useAI'
 import useChat from '../../hooks/useChat'
 import useDocumentIndex from '../../hooks/useDocumentIndex'
-import usePageGoals from '../../hooks/usePageGoals'
+import useLearningUnits from '../../hooks/useLearningUnits'
 import { getDisplayColor } from '../../lib/colorUtils'
 import useDocumentStore from '../../store/documentStore'
 
@@ -45,7 +45,7 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
   const { messages, addMessage } = useChat(docId)
   const { chat } = useAI()
   const { indexed, search, getChunkByPage } = useDocumentIndex(docId)
-  const { getGoal } = usePageGoals(docId)
+  const { getUnitForPage } = useLearningUnits(docId)
 
   const [input, setInput]             = useState('')
   const [streamingText, setStreamingText] = useState('')
@@ -165,8 +165,8 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
 
   const noDoc = !docId
   const hasContext = contextAnnotations.length > 0
-  const currentGoal = currentPage > 0 ? getGoal(currentPage - 1) : null
-  const suggestedQuestions = currentGoal?.focusQuestions?.filter(Boolean).slice(0, 2) ?? []
+  const currentUnit = currentPage > 0 ? getUnitForPage(currentPage - 1) : null
+  const suggestedQuestions = currentUnit?.focusQuestions?.filter(Boolean).slice(0, 2) ?? []
 
   return (
     <div style={styles.panel}>

@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import useAnnotationStore from '../store/annotationStore'
+import useAnnotationUndoStore from '../store/annotationUndoStore'
 import useAuthStore from '../store/authStore'
 import { generateId, isOverlapping } from '../lib/selectionUtils'
 
@@ -26,8 +27,9 @@ function itemsCol(uid, docId) {
  */
 export default function useAnnotation(docId) {
   const uid = useAuthStore((s) => s.user?.uid)
-  const { loadAnnotations, updateAnnotation, removeAnnotation } =
+  const { loadAnnotations, addAnnotation, updateAnnotation, removeAnnotation } =
     useAnnotationStore()
+  const { pushUndo, undoLast, lastAction, busy: undoBusy } = useAnnotationUndoStore()
 
   // stable selector: docId가 같으면 동일 배열 레퍼런스 유지 (무한 루프 방지)
   const annotations = useAnnotationStore((s) => s.annotations[docId] ?? EMPTY_ANNOTATIONS)
@@ -82,6 +84,16 @@ export default function useAnnotation(docId) {
     await Promise.all(overlapping.map((a) => deleteDoc(doc(itemsCol(uid, docId), a.id))))
 
     await setDoc(doc(itemsCol(uid, docId), newItem.id), newItem)
+    addAnnotation(docId, newItem)
+    pushUndo({
+      id: `create:${newItem.id}`,
+      message: '메모를 저장했습니다.',
+      undoLabel: '실행 취소',
+      undo: async () => {
+        await deleteDoc(doc(itemsCol(uid, docId), newItem.id))
+        removeAnnotation(docId, newItem.id)
+      },
+    })
     return newItem.id
   }
 
@@ -96,9 +108,20 @@ export default function useAnnotation(docId) {
 
   async function remove(id) {
     if (!uid) return
+    const current = (useAnnotationStore.getState().annotations[docId] ?? []).find((a) => a.id === id)
+    if (!current) return
     await deleteDoc(doc(itemsCol(uid, docId), id))
     removeAnnotation(docId, id)
+    pushUndo({
+      id: `delete:${id}`,
+      message: '메모를 삭제했습니다.',
+      undoLabel: '복구',
+      undo: async () => {
+        await setDoc(doc(itemsCol(uid, docId), id), current)
+        addAnnotation(docId, current)
+      },
+    })
   }
 
-  return { annotations, add, update, remove }
+  return { annotations, add, update, remove, undoLast, lastUndoAction: lastAction, undoBusy }
 }

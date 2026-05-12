@@ -16,6 +16,15 @@ const useAnnotationStore = create((set, get) => ({
       },
     })),
 
+  addAnnotation: (docId, item) =>
+    set((state) => {
+      const items = state.annotations[docId] ?? []
+      const next = items.some((a) => a.id === item.id)
+        ? items.map((a) => (a.id === item.id ? item : a))
+        : [...items, item]
+      return { annotations: { ...state.annotations, [docId]: next } }
+    }),
+
   removeAnnotation: (docId, id) =>
     set((state) => ({
       annotations: {

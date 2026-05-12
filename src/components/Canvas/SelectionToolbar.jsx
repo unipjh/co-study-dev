@@ -26,6 +26,7 @@ export default function SelectionToolbar({
   onRemovePending,
   isRegion = false,
   onSendImageToChat,
+  onSendSelectionToChat,
 }) {
   const [phase, setPhase]             = useState('color')
   const [selectedColor, setSelectedColor] = useState(null)  // key string 또는 hex
@@ -59,7 +60,11 @@ export default function SelectionToolbar({
   const computedTop  = flipDown
     ? viewportRect.bottom + 8
     : viewportRect.top - (phase === 'memo' ? memoBoxHeight : colorBarHeight) - 8
-  const computedLeft = viewportRect.left + viewportRect.width / 2
+  const estimatedWidth = phase === 'memo' ? 244 : 290
+  const computedLeft = Math.min(
+    window.innerWidth - estimatedWidth / 2 - 12,
+    Math.max(estimatedWidth / 2 + 12, viewportRect.left + viewportRect.width / 2)
+  )
 
   const top  = dragPos ? dragPos.top  : computedTop
   const left = dragPos ? dragPos.left : computedLeft
@@ -249,6 +254,16 @@ export default function SelectionToolbar({
 
             <span style={styles.divider} />
 
+            {!isRegion && (
+              <button
+                title="선택 텍스트를 저장하지 않고 Chat 맥락에 추가"
+                style={styles.chatContextBtn}
+                onClick={() => { onSendSelectionToChat?.(); onClose() }}
+              >
+                Chat
+              </button>
+            )}
+
             {/* AI 즉시 설명 */}
             <button
               title="AI 즉시 설명"
@@ -299,6 +314,14 @@ export default function SelectionToolbar({
           />
           <div style={styles.actions}>
             <button style={styles.cancelBtn} onClick={() => { onClearPending?.(); onClose() }}>취소</button>
+            {!isRegion && (
+              <button
+                style={styles.sendChatBtn}
+                onClick={() => { onSendSelectionToChat?.(); onClose() }}
+              >
+                저장 없이 Chat
+              </button>
+            )}
             <button style={styles.saveBtn} onClick={handleSave}>저장</button>
           </div>
         </div>
@@ -487,6 +510,18 @@ const styles = {
     color: '#fff',
     flexShrink: 0,
   },
+  chatContextBtn: {
+    fontSize: 11,
+    cursor: 'pointer',
+    padding: '4px 7px',
+    lineHeight: 1,
+    background: '#6366f1',
+    border: '1px solid rgba(255,255,255,0.2)',
+    color: '#fff',
+    borderRadius: 5,
+    flexShrink: 0,
+    fontWeight: 700,
+  },
   addSelBtn: {
     fontSize: 11,
     cursor: 'pointer',
@@ -538,5 +573,15 @@ const styles = {
     fontSize: 12,
     fontWeight: 700,
     cursor: 'pointer',
+  },
+  sendChatBtn: {
+    padding: '4px 10px',
+    borderRadius: 5,
+    background: '#6366f1',
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: 'pointer',
+    border: 'none',
   },
 }

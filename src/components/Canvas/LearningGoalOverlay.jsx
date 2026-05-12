@@ -15,6 +15,8 @@ export default function LearningGoalOverlay({
   indexTotal,
   unavailable,
   pageNumber,
+  pageRange,
+  pageHint,
   onToggleComplete,
   onRegenerate,
 }) {
@@ -71,6 +73,12 @@ export default function LearningGoalOverlay({
         <div style={styles.popup}>
           {goal && (
             <>
+              {pageHint && (
+                <div style={styles.pageFocus}>
+                  <span style={styles.pageFocusLabel}>현재 페이지 포커스</span>
+                  {pageHint}
+                </div>
+              )}
               {goal.objectives?.length > 0 && (
                 <div style={styles.block}>
                   <div style={styles.blockTitle}>읽으면서 확인할 것</div>
@@ -99,7 +107,7 @@ export default function LearningGoalOverlay({
 
           {error && <div style={styles.error}>{error}</div>}
           <div style={styles.actions}>
-            <span style={styles.pageHint}>{pageNumber}p</span>
+            <span style={styles.pageHint}>{pageRange ?? `${pageNumber}p`}</span>
             {goal && (
               <button
                 type="button"
@@ -233,6 +241,22 @@ const styles = {
     color: '#2d2d2d',
     fontSize: 12,
     lineHeight: 1.45,
+  },
+  pageFocus: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 4,
+    padding: '8px 9px',
+    borderRadius: 7,
+    background: '#f8f8ff',
+    color: '#333',
+    fontSize: 12,
+    lineHeight: 1.45,
+  },
+  pageFocusLabel: {
+    color: '#6366f1',
+    fontSize: 10,
+    fontWeight: 800,
   },
   keywords: {
     display: 'flex',

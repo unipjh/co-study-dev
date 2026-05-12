@@ -34,39 +34,77 @@ export default function HighlightLayer({ annotations, pageIndex, containerSize, 
   return (
     <div style={styles.layer}>
       {renderItems.map(({ ann, rects }) =>
-        rects.map((r, i) => {
-          const shrink = r.height * containerSize.height * 0.15
-          return (
-            <div
-              key={`${ann.id}-${pageIndex}-${i}`}
-              title={ann.text}
-              style={
-                ann.type === 'region'
-                  ? {
-                      ...styles.mark,
-                      top:    r.top    * containerSize.height,
-                      left:   r.left   * containerSize.width,
-                      width:  r.width  * containerSize.width,
-                      height: r.height * containerSize.height,
-                      background: 'transparent',
-                      border: `2px solid ${getHighlightColor(ann.color)}`,
-                      mixBlendMode: 'normal',
-                    }
-                  : {
-                      ...styles.mark,
-                      top:    r.top    * containerSize.height + shrink,
-                      left:   r.left   * containerSize.width,
-                      width:  r.width  * containerSize.width,
-                      height: r.height * containerSize.height - shrink * 2,
-                      background: getHighlightColor(ann.color),
-                    }
-              }
-              onClick={() => onClickAnnotation?.(ann, pageIndex)}
-            />
-          )
-        })
+        (
+          <FragmentWithMarker
+            key={`${ann.id}-${pageIndex}`}
+            ann={ann}
+            rects={rects}
+            pageIndex={pageIndex}
+            containerSize={containerSize}
+            onClickAnnotation={onClickAnnotation}
+          />
+        )
       )}
     </div>
+  )
+}
+
+function FragmentWithMarker({ ann, rects, pageIndex, containerSize, onClickAnnotation }) {
+  const lastRect = rects[rects.length - 1]
+  const markerVisible = Boolean(lastRect && ann.content)
+
+  return (
+    <>
+      {rects.map((r, i) => {
+        const shrink = r.height * containerSize.height * 0.15
+        return (
+          <div
+            key={`${ann.id}-${pageIndex}-${i}`}
+            title={ann.text}
+            style={
+              ann.type === 'region'
+                ? {
+                    ...styles.mark,
+                    top:    r.top    * containerSize.height,
+                    left:   r.left   * containerSize.width,
+                    width:  r.width  * containerSize.width,
+                    height: r.height * containerSize.height,
+                    background: 'transparent',
+                    border: `2px solid ${getHighlightColor(ann.color)}`,
+                    mixBlendMode: 'normal',
+                  }
+                : {
+                    ...styles.mark,
+                    top:    r.top    * containerSize.height + shrink,
+                    left:   r.left   * containerSize.width,
+                    width:  r.width  * containerSize.width,
+                    height: r.height * containerSize.height - shrink * 2,
+                    background: getHighlightColor(ann.color),
+                  }
+            }
+            onClick={() => onClickAnnotation?.(ann, pageIndex)}
+          />
+        )
+      })}
+      {markerVisible && (
+        <button
+          type="button"
+          title="메모 보기"
+          style={{
+            ...styles.memoMarker,
+            top: Math.max(2, (lastRect.top + lastRect.height) * containerSize.height - 9),
+            left: Math.min(
+              containerSize.width - 20,
+              Math.max(2, (lastRect.left + lastRect.width) * containerSize.width + 4),
+            ),
+            borderColor: getHighlightColor(ann.color),
+          }}
+          onClick={() => onClickAnnotation?.(ann, pageIndex)}
+        >
+          메모
+        </button>
+      )}
+    </>
   )
 }
 
@@ -83,5 +121,22 @@ const styles = {
     cursor: 'pointer',
     borderRadius: 2,
     mixBlendMode: 'multiply',
+  },
+  memoMarker: {
+    position: 'absolute',
+    zIndex: 5,
+    pointerEvents: 'auto',
+    cursor: 'pointer',
+    height: 18,
+    minWidth: 34,
+    padding: '0 5px',
+    borderRadius: 9,
+    border: '1px solid',
+    background: '#fff',
+    color: '#111827',
+    fontSize: 10,
+    fontWeight: 800,
+    lineHeight: '16px',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.16)',
   },
 }
