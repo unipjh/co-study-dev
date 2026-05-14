@@ -7,6 +7,7 @@ import useAI, { buildRagSystemInstruction, NO_CHUNK_FALLBACK } from '../AI/useAI
 import useChat from '../../hooks/useChat'
 import useDocumentIndex from '../../hooks/useDocumentIndex'
 import useLearningUnits from '../../hooks/useLearningUnits'
+import useLearningQuestionAnswers from '../../hooks/useLearningQuestionAnswers'
 import { getDisplayColor } from '../../lib/colorUtils'
 import useDocumentStore from '../../store/documentStore'
 
@@ -41,17 +42,33 @@ function mergeChunks(semanticChunks, ...extras) {
  *
  * @param {{ docId, contextAnnotations, onClearContext }} props
  */
-export default function ChatPanel({ docId, contextAnnotations = [], onClearContext, currentPage = 0 }) {
+export default function ChatPanel({
+  docId,
+  contextAnnotations = [],
+  onClearContext,
+  currentPage = 0,
+  pendingPrompt = null,
+  onPendingPromptConsumed,
+  onPageJump,
+  focusSuggestedTick = 0,
+}) {
   const { messages, addMessage } = useChat(docId)
   const { chat } = useAI()
   const { indexed, search, getChunkByPage } = useDocumentIndex(docId)
   const { getUnitForPage } = useLearningUnits(docId)
+  const { getAnswer, saveAnswer } = useLearningQuestionAnswers(docId)
 
   const [input, setInput]             = useState('')
   const [streamingText, setStreamingText] = useState('')
   const [isStreaming, setIsStreaming]  = useState(false)
   const [error, setError]             = useState(null)
+  const [suggestedOpen, setSuggestedOpen] = useState(() => localStorage.getItem('costudy:suggestedOpen') !== 'false')
+  const [openQuestion, setOpenQuestion] = useState(null)
+  const [draftAnswers, setDraftAnswers] = useState({})
+  const [messageFilter, setMessageFilter] = useState('all')
   const bottomRef = useRef(null)
+  const handledPromptRef = useRef(null)
+  const suggestedRef = useRef(null)
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -149,6 +166,23 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
     }
   }
 
+  useEffect(() => {
+    if (!pendingPrompt?.text) return
+    if (handledPromptRef.current === pendingPrompt.id) return
+    handledPromptRef.current = pendingPrompt.id
+    handleSend(pendingPrompt.text)
+    onPendingPromptConsumed?.()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingPrompt?.id])
+
+  useEffect(() => {
+    if (!focusSuggestedTick) return
+    setSuggestedOpen(true)
+    requestAnimationFrame(() => {
+      suggestedRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }, [focusSuggestedTick])
+
   async function handleQuickAction(key) {
     if (contextAnnotations.length === 0) return
     const prompts = {
@@ -158,7 +192,32 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
     await handleSend(prompts[key])
   }
 
+  function toggleSuggestedOpen() {
+    setSuggestedOpen((prev) => {
+      localStorage.setItem('costudy:suggestedOpen', String(!prev))
+      return !prev
+    })
+  }
+
+  async function saveSuggestedAnswer(question, answer, status = 'answered') {
+    if (!currentUnit?.id) return
+    await saveAnswer({
+      unitId: currentUnit.id,
+      pageIndex: currentPage > 0 ? currentPage - 1 : null,
+      question,
+      answer,
+      status,
+    })
+  }
+
+  async function checkSuggestedAnswer(question) {
+    const saved = getAnswer(currentUnit?.id, question)
+    const answerText = saved?.answer?.trim() || '(빈 답변)'
+    await handleSend(`다음 추천 질문에 대한 내 답변을 정답 관점에서 확인해줘.\n\n질문: ${question}\n내 답변: ${answerText}`)
+  }
+
   function handlePageJump(page) {
+    if (onPageJump && onPageJump(page) === false) return
     useDocumentStore.getState().setCurrentPage(page)
     useDocumentStore.getState().setViewMode('page')
   }
@@ -167,6 +226,12 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
   const hasContext = contextAnnotations.length > 0
   const currentUnit = currentPage > 0 ? getUnitForPage(currentPage - 1) : null
   const suggestedQuestions = currentUnit?.focusQuestions?.filter(Boolean).slice(0, 2) ?? []
+  const visibleMessages = messages.filter((message) => {
+    if (messageFilter === 'all') return true
+    if (messageFilter === 'context') return Boolean(message.contextText)
+    if (messageFilter === 'followup') return /왜|어떻게|좀 더|추가|이어|그럼|그러면/.test(message.content ?? '')
+    return !message.contextText
+  })
 
   return (
     <div style={styles.panel}>
@@ -231,24 +296,112 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
       )}
 
       {suggestedQuestions.length > 0 && (
-        <div style={styles.suggestedQuestions}>
-          <span style={styles.suggestedLabel}>추천 질문</span>
-          <div style={styles.suggestedList}>
-            {suggestedQuestions.map((question) => (
-              <button
-                key={question}
-                type="button"
-                style={styles.suggestedBtn}
-                onClick={() => handleSend(question)}
-                disabled={isStreaming || noDoc}
-                title="Chat으로 바로 질문하기"
-              >
-                {question}
-              </button>
-            ))}
+        <div style={styles.suggestedQuestions} ref={suggestedRef}>
+          <div style={styles.suggestedHeader}>
+            <span style={styles.suggestedLabel}>추천 질문</span>
+            <span style={styles.suggestedCount}>
+              {suggestedQuestions.filter((q) => !getAnswer(currentUnit?.id, q)?.status).length}개 남음
+            </span>
+            <button type="button" style={styles.suggestedToggle} onClick={toggleSuggestedOpen}>
+              {suggestedOpen ? '접기' : '펼치기'}
+            </button>
           </div>
+          {suggestedOpen && (
+            <div style={styles.suggestedList}>
+              {suggestedQuestions.map((question) => {
+                const saved = getAnswer(currentUnit?.id, question)
+                const isOpen = openQuestion === question
+                const draft = draftAnswers[question] ?? saved?.answer ?? ''
+                const resolved = saved?.status === 'answered' || saved?.status === 'skipped'
+                return (
+                  <div key={question} style={styles.suggestedCard}>
+                    <div style={styles.questionRow}>
+                      <button
+                        type="button"
+                        style={styles.questionTextBtn}
+                        onClick={() => setOpenQuestion(isOpen ? null : question)}
+                        disabled={isStreaming || noDoc}
+                        title="답변 작성 열기"
+                      >
+                        {question}
+                      </button>
+                      <button
+                        type="button"
+                        style={styles.skipInlineBtn}
+                        onClick={() => saveSuggestedAnswer(question, ' ', 'skipped')}
+                        disabled={isStreaming || saved?.status === 'skipped'}
+                      >
+                        Skip
+                      </button>
+                    </div>
+                    <div style={styles.questionMeta}>
+                      <span>{saved?.status === 'skipped' ? '건너뜀' : resolved ? '저장됨' : '답변 전'}</span>
+                      {resolved && (
+                        <button
+                          type="button"
+                          style={styles.checkInlineBtn}
+                          disabled={isStreaming}
+                          onClick={() => checkSuggestedAnswer(question)}
+                        >
+                          AI로 확인
+                        </button>
+                      )}
+                    </div>
+                    {isOpen && (
+                      <div style={styles.answerBox}>
+                        <textarea
+                          style={styles.answerInput}
+                          value={draft}
+                          placeholder="내 답변을 먼저 적어보세요."
+                          rows={3}
+                          onChange={(e) => setDraftAnswers((prev) => ({ ...prev, [question]: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && !e.shiftKey) {
+                              e.preventDefault()
+                              saveSuggestedAnswer(question, draft.trim(), 'answered')
+                            }
+                          }}
+                        />
+                        <div style={styles.answerActions}>
+                          <button type="button" style={styles.answerBtn} onClick={() => saveSuggestedAnswer(question, draft.trim(), 'answered')}>
+                            저장
+                          </button>
+                          <button
+                            type="button"
+                            style={{ ...styles.answerBtn, opacity: resolved ? 1 : 0.45 }}
+                            disabled={!resolved || isStreaming}
+                            onClick={() => checkSuggestedAnswer(question)}
+                          >
+                            AI로 정답 확인
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
+
+      <div style={styles.filterRow}>
+          {[
+            ['all', '전체'],
+            ['simple', '단순'],
+            ['followup', '꼬리'],
+            ['context', '맥락'],
+          ].map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              style={{ ...styles.filterBtn, ...(messageFilter === key ? styles.filterBtnActive : {}) }}
+              onClick={() => setMessageFilter(key)}
+            >
+              {label}
+            </button>
+          ))}
+      </div>
 
       {/* 메시지 목록 */}
       <div style={styles.messageList}>
@@ -257,7 +410,7 @@ export default function ChatPanel({ docId, contextAnnotations = [], onClearConte
             <p style={styles.hintText}>PDF를 열면 채팅을 시작할 수 있습니다</p>
           </div>
         )}
-        {messages.map((msg) => (
+        {visibleMessages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} onPageJump={handlePageJump} />
         ))}
         {isStreaming && streamingText && (
@@ -453,44 +606,182 @@ const styles = {
   },
   emptyContextHint: { fontSize: 11, color: '#bbb', lineHeight: 1.6, textAlign: 'center' },
   suggestedQuestions: {
-    padding: '9px 14px',
+    padding: '8px 10px',
     background: '#fff',
     borderBottom: '1px solid #eeeeee',
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
-    gap: 7,
+    gap: 6,
+    maxHeight: 230,
+  },
+  suggestedHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
   },
   suggestedLabel: {
     fontSize: 10,
     color: '#6366f1',
     fontWeight: 800,
   },
+  suggestedCount: {
+    marginRight: 'auto',
+    fontSize: 10,
+    color: '#9ca3af',
+    fontWeight: 800,
+  },
+  suggestedToggle: {
+    border: '1px solid #e5e7eb',
+    background: '#fff',
+    color: '#4b5563',
+    borderRadius: 6,
+    padding: '4px 8px',
+    fontSize: 11,
+    fontWeight: 800,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
   suggestedList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 5,
+    gap: 6,
+    overflowY: 'auto',
+    paddingRight: 2,
   },
-  suggestedBtn: {
-    width: '100%',
+  suggestedCard: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 5,
     border: '1px solid #e0e0ff',
     background: '#f8f8ff',
-    color: '#333',
     borderRadius: 7,
-    padding: '7px 8px',
+    padding: 7,
+  },
+  questionRow: {
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1fr) auto',
+    gap: 6,
+    alignItems: 'start',
+  },
+  questionTextBtn: {
+    minWidth: 0,
+    border: 'none',
+    background: 'transparent',
+    color: '#333',
+    padding: 0,
     fontSize: 12,
     lineHeight: 1.4,
     textAlign: 'left',
+    cursor: 'pointer',
+    fontWeight: 700,
+  },
+  skipInlineBtn: {
+    border: '1px solid #e5e7eb',
+    background: '#fff',
+    color: '#4b5563',
+    borderRadius: 6,
+    padding: '4px 7px',
+    fontSize: 11,
+    fontWeight: 900,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  questionMeta: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+    color: '#6b7280',
+    fontSize: 10,
+    fontWeight: 800,
+  },
+  checkInlineBtn: {
+    border: 'none',
+    background: 'transparent',
+    color: '#4f46e5',
+    padding: 0,
+    fontSize: 10,
+    fontWeight: 900,
+    cursor: 'pointer',
+  },
+  answerBox: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+    border: '1px solid #e5e7eb',
+    background: '#fff',
+    borderRadius: 7,
+    padding: 8,
+  },
+  answerInput: {
+    resize: 'vertical',
+    minHeight: 62,
+    border: '1px solid #e5e7eb',
+    borderRadius: 7,
+    padding: '7px 8px',
+    fontSize: 12,
+    fontFamily: 'inherit',
+    lineHeight: 1.45,
+    outline: 'none',
+  },
+  answerActions: {
+    display: 'flex',
+    gap: 6,
+    flexWrap: 'wrap',
+  },
+  answerBtn: {
+    border: 'none',
+    background: '#111827',
+    color: '#fff',
+    borderRadius: 7,
+    padding: '6px 8px',
+    fontSize: 11,
+    fontWeight: 800,
+    cursor: 'pointer',
+  },
+  answerGhostBtn: {
+    border: '1px solid #e5e7eb',
+    background: '#fff',
+    color: '#4b5563',
+    borderRadius: 7,
+    padding: '6px 8px',
+    fontSize: 11,
+    fontWeight: 800,
     cursor: 'pointer',
   },
   // 메시지 목록
   messageList: {
     flex: 1,
     overflowY: 'auto',
-    padding: '12px 14px',
+    padding: '10px 14px 12px',
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
+  },
+  filterRow: {
+    flexShrink: 0,
+    display: 'flex',
+    gap: 5,
+    padding: '7px 10px',
+    background: '#fff',
+    borderBottom: '1px solid #eeeeee',
+    overflowX: 'auto',
+  },
+  filterBtn: {
+    border: '1px solid #e5e7eb',
+    background: '#fff',
+    color: '#4b5563',
+    borderRadius: 7,
+    padding: '5px 9px',
+    fontSize: 11,
+    fontWeight: 800,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  filterBtnActive: {
+    borderColor: '#6366f1',
+    background: '#eef2ff',
+    color: '#312e81',
   },
   centerHint: {
     flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 80,

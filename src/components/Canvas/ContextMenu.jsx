@@ -1,6 +1,21 @@
 import { useEffect } from 'react'
 
-export default function ContextMenu({ x, y, mode, onClose, onMemo, onSendToChat, onCreateQuiz, onShowMemos, onCancelSelection }) {
+export default function ContextMenu({
+  x,
+  y,
+  mode,
+  annotation,
+  onClose,
+  onMemo,
+  onSendToChat,
+  onCreateQuiz,
+  onSummarizePage,
+  onShowMemos,
+  onCancelSelection,
+  onAddSelection,
+  onEditAnnotation,
+  onDeleteAnnotation,
+}) {
   useEffect(() => {
     function close() { onClose?.() }
     function onKeyDown(e) {
@@ -16,13 +31,12 @@ export default function ContextMenu({ x, y, mode, onClose, onMemo, onSendToChat,
     }
   }, [onClose])
 
-  const estimatedWidth = 178
+  const estimatedWidth = 190
   const left = Math.min(window.innerWidth - estimatedWidth - 8, Math.max(8, x))
-  const top = Math.min(window.innerHeight - 210, Math.max(8, y))
-  const selectionMode = mode === 'selection'
+  const top = Math.min(window.innerHeight - 230, Math.max(8, y))
 
   function run(action) {
-    action?.()
+    action?.(annotation)
     onClose?.()
   }
 
@@ -32,16 +46,23 @@ export default function ContextMenu({ x, y, mode, onClose, onMemo, onSendToChat,
       onPointerDown={(e) => e.stopPropagation()}
       onContextMenu={(e) => e.preventDefault()}
     >
-      {selectionMode ? (
+      {mode === 'annotation' ? (
         <>
-          <button style={styles.item} onClick={() => run(onMemo)}>메모 남기기</button>
-          <button style={styles.item} onClick={() => run(onSendToChat)}>Chat에 보내기</button>
+          <button style={styles.itemDanger} onClick={() => run(onDeleteAnnotation)}>삭제</button>
+          <button style={styles.item} onClick={() => run(onEditAnnotation)}>메모 수정</button>
+          <button style={styles.item} onClick={() => run(onSendToChat)}>Chat 맥락 추가</button>
+        </>
+      ) : mode === 'selection' ? (
+        <>
+          <button style={styles.item} onClick={() => run(onMemo)}>메모 저장</button>
+          <button style={styles.item} onClick={() => run(onAddSelection)}>선택 추가</button>
           <button style={styles.item} onClick={() => run(onCreateQuiz)}>선택으로 퀴즈</button>
           <span style={styles.divider} />
           <button style={styles.itemMuted} onClick={() => run(onCancelSelection)}>선택 취소</button>
         </>
       ) : (
         <>
+          <button style={styles.item} onClick={() => run(onSummarizePage)}>현재 페이지 요약</button>
           <button style={styles.item} onClick={() => run(onCreateQuiz)}>현재 페이지 퀴즈</button>
           <button style={styles.item} onClick={() => run(onShowMemos)}>페이지 메모 보기</button>
         </>
@@ -82,6 +103,17 @@ const styles = {
     padding: '8px 9px',
     fontSize: 13,
     fontWeight: 700,
+    textAlign: 'left',
+    cursor: 'pointer',
+  },
+  itemDanger: {
+    border: 'none',
+    background: '#fff1f2',
+    color: '#be123c',
+    borderRadius: 6,
+    padding: '8px 9px',
+    fontSize: 13,
+    fontWeight: 800,
     textAlign: 'left',
     cursor: 'pointer',
   },

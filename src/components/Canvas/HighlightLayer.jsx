@@ -7,7 +7,7 @@ import { getHighlightColor } from '../../lib/colorUtils'
  *
  * @param {{ annotations, pageIndex, containerSize, onClickAnnotation }} props
  */
-export default function HighlightLayer({ annotations, pageIndex, containerSize, onClickAnnotation }) {
+export default function HighlightLayer({ annotations, pageIndex, containerSize, onClickAnnotation, onContextMenuAnnotation }) {
   if (!containerSize) return null
 
   // 이 페이지에 해당하는 rect 목록을 annotation별로 수집
@@ -42,6 +42,7 @@ export default function HighlightLayer({ annotations, pageIndex, containerSize, 
             pageIndex={pageIndex}
             containerSize={containerSize}
             onClickAnnotation={onClickAnnotation}
+            onContextMenuAnnotation={onContextMenuAnnotation}
           />
         )
       )}
@@ -49,7 +50,7 @@ export default function HighlightLayer({ annotations, pageIndex, containerSize, 
   )
 }
 
-function FragmentWithMarker({ ann, rects, pageIndex, containerSize, onClickAnnotation }) {
+function FragmentWithMarker({ ann, rects, pageIndex, containerSize, onClickAnnotation, onContextMenuAnnotation }) {
   const lastRect = rects[rects.length - 1]
   const markerVisible = Boolean(lastRect && ann.content)
 
@@ -83,6 +84,11 @@ function FragmentWithMarker({ ann, rects, pageIndex, containerSize, onClickAnnot
                   }
             }
             onClick={() => onClickAnnotation?.(ann, pageIndex)}
+            onContextMenu={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onContextMenuAnnotation?.(e, ann, pageIndex)
+            }}
           />
         )
       })}
@@ -100,6 +106,11 @@ function FragmentWithMarker({ ann, rects, pageIndex, containerSize, onClickAnnot
             borderColor: getHighlightColor(ann.color),
           }}
           onClick={() => onClickAnnotation?.(ann, pageIndex)}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onContextMenuAnnotation?.(e, ann, pageIndex)
+          }}
         >
           메모
         </button>

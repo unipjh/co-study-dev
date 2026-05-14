@@ -257,7 +257,7 @@ export default function SelectionToolbar({
             {!isRegion && (
               <button
                 title="선택 텍스트를 저장하지 않고 Chat 맥락에 추가"
-                style={styles.chatContextBtn}
+                style={{ ...styles.chatContextBtn, display: 'none' }}
                 onClick={() => { onSendSelectionToChat?.(); onClose() }}
               >
                 Chat
@@ -267,7 +267,7 @@ export default function SelectionToolbar({
             {/* AI 즉시 설명 */}
             <button
               title="AI 즉시 설명"
-              style={styles.aiBtn}
+              style={{ ...styles.aiBtn, display: 'none' }}
               onClick={() => { onAITutor?.(); onClose() }}
             >
               💡
@@ -288,7 +288,7 @@ export default function SelectionToolbar({
             {!isRegion && (
               <button
                 title="현재 선택을 유지하고 더 선택"
-                style={styles.addSelBtn}
+                style={{ ...styles.addSelBtn, display: 'none' }}
                 onClick={handleAddSelection}
               >
                 +선택
@@ -316,7 +316,7 @@ export default function SelectionToolbar({
             <button style={styles.cancelBtn} onClick={() => { onClearPending?.(); onClose() }}>취소</button>
             {!isRegion && (
               <button
-                style={styles.sendChatBtn}
+                style={{ ...styles.sendChatBtn, display: 'none' }}
                 onClick={() => { onSendSelectionToChat?.(); onClose() }}
               >
                 저장 없이 Chat

@@ -10,6 +10,8 @@ import DocumentCanvas from '../components/Canvas/DocumentCanvas'
 import PageThumbnailPanel from '../components/Canvas/PageThumbnailPanel'
 import SidePanel from '../components/Sidebar/SidePanel'
 import useAnnotation from '../hooks/useAnnotation'
+import useLearningUnits from '../hooks/useLearningUnits'
+import useLearningQuestionAnswers from '../hooks/useLearningQuestionAnswers'
 
 const SIDEBAR_MIN = 180
 const SIDEBAR_MAX = 600
@@ -27,6 +29,8 @@ export default function ViewerPage() {
   const [thumbnailOpen,      setThumbnailOpen]       = useState(false)
   const [loadError,          setLoadError]           = useState(null)
   const [quizSeed,           setQuizSeed]            = useState(null)
+  const [pendingChatPrompt,  setPendingChatPrompt]   = useState(null)
+  const [focusSuggestedTick, setFocusSuggestedTick]   = useState(0)
   const [sidebarWidth,       setSidebarWidth]        = useState(SIDEBAR_DEFAULT)
   const [viewportWidth,      setViewportWidth]       = useState(() => window.innerWidth)
   const [retryCount,         setRetryCount]          = useState(0)
@@ -41,6 +45,8 @@ export default function ViewerPage() {
     lastUndoAction,
     undoBusy,
   } = useAnnotation(docId)
+  const { getUnitForPage } = useLearningUnits(docId)
+  const { unresolvedQuestions } = useLearningQuestionAnswers(docId)
   const isMobile = viewportWidth < 700
 
   // [B3] 주석이 삭제되면 stale contextAnnotations 자동 정리 (동일 ref 반환으로 루프 방지)
@@ -168,10 +174,34 @@ export default function ViewerPage() {
     setSidebarOpen(true)
   }
 
+  function showSuggestedQuestions() {
+    setActiveTab('chat')
+    setSidebarOpen(true)
+    setFocusSuggestedTick(Date.now())
+  }
+
+  function requestPageChange(page) {
+    const currentUnit = getUnitForPage(Math.max(0, currentPage - 1))
+    const targetUnit = getUnitForPage(Math.max(0, page - 1))
+    const pending = currentUnit?.focusQuestions?.length ? unresolvedQuestions(currentUnit) : []
+    if (pending.length > 0 && currentUnit?.id && targetUnit?.id !== currentUnit.id) {
+      setActiveTab('chat')
+      setSidebarOpen(true)
+      setFocusSuggestedTick(Date.now())
+      showToast('추천 질문에 답변하거나 Skip을 누른 뒤 이동할 수 있습니다.')
+      return false
+    }
+    setCurrentPage(page)
+    return true
+  }
+
   function handleSendToChat(annotation) {
     setContextAnnotations((prev) =>
       prev.find((a) => a.id === annotation.id) ? prev : [...prev, annotation]
     )
+    if (annotation.autoPrompt) {
+      setPendingChatPrompt({ id: `${annotation.id}:${Date.now()}`, text: annotation.autoPrompt })
+    }
     setActiveTab('chat')
     setSidebarOpen(true)
     showToast('맥락이 Chat에 추가되었습니다')
@@ -215,8 +245,9 @@ export default function ViewerPage() {
             numPages={numPages}
             currentPage={currentPage}
             onPageSelect={(page) => {
-              setCurrentPage(page)
-              useDocumentStore.getState().setViewMode('page')
+              if (requestPageChange(page)) {
+                useDocumentStore.getState().setViewMode('page')
+              }
             }}
             onClose={() => setThumbnailOpen(false)}
           />
@@ -228,7 +259,10 @@ export default function ViewerPage() {
           activeTab={activeTab}
           onTabChange={handleTabChange}
           sidebarOpen={sidebarOpen}
+          sidebarWidth={sidebarWidth}
+          isMobile={isMobile}
           onSidebarToggle={() => setSidebarOpen((v) => !v)}
+          onShowSuggestedQuestions={showSuggestedQuestions}
         />
         {sidebarOpen && (
           <>
@@ -249,25 +283,29 @@ export default function ViewerPage() {
               ? { ...styles.sidebarWrapperMobile, width: Math.min(sidebarWidth, Math.round(viewportWidth * 0.85)) }
               : { ...styles.sidebarWrapper, width: sidebarWidth }
             }>
-              {isMobile && (
-                <button
-                  type="button"
-                  style={styles.panelCloseBtn}
-                  onClick={() => setSidebarOpen(false)}
-                >
-                  닫기
-                </button>
-              )}
+              <button
+                type="button"
+                style={styles.panelCloseBtn}
+                onClick={() => setSidebarOpen(false)}
+                aria-label="사이드바 닫기"
+                title="사이드바 닫기"
+              >
+                ×
+              </button>
               <SidePanel
                 docId={docId}
                 annotations={annotations}
                 onDeleteAnnotation={removeAnnotation}
                 onScrollToAnnotation={(ann) => {
-                  useDocumentStore.getState().setCurrentPage(ann.pageIndex + 1)
+                  requestPageChange(ann.pageIndex + 1)
                 }}
                 contextAnnotations={contextAnnotations}
                 onClearContext={handleClearContext}
                 onSendToChat={handleSendToChat}
+                pendingChatPrompt={pendingChatPrompt}
+                onPendingChatPromptConsumed={() => setPendingChatPrompt(null)}
+                onPageJump={requestPageChange}
+                focusSuggestedTick={focusSuggestedTick}
                 quizSeed={quizSeed}
                 activeTab={activeTab}
                 onTabChange={handleTabChange}
@@ -342,12 +380,15 @@ const styles = {
     border: '1px solid #e0e0e0',
     background: 'rgba(255,255,255,0.92)',
     color: '#333',
+    width: 28,
+    height: 28,
     borderRadius: 7,
-    padding: '4px 8px',
-    fontSize: 12,
+    padding: 0,
+    fontSize: 18,
     fontWeight: 800,
     cursor: 'pointer',
     boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+    lineHeight: '26px',
   },
   backdrop: {
     position: 'absolute',

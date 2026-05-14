@@ -26,6 +26,10 @@ export default function SidePanel({
   contextAnnotations,
   onClearContext,
   onSendToChat,
+  pendingChatPrompt,
+  onPendingChatPromptConsumed,
+  onPageJump,
+  focusSuggestedTick,
   quizSeed,
   activeTab,
   currentPage,
@@ -38,6 +42,10 @@ export default function SidePanel({
           contextAnnotations={contextAnnotations}
           onClearContext={onClearContext}
           currentPage={currentPage}
+          pendingPrompt={pendingChatPrompt}
+          onPendingPromptConsumed={onPendingChatPromptConsumed}
+          onPageJump={onPageJump}
+          focusSuggestedTick={focusSuggestedTick}
         />
       )}
       {activeTab === 'memo' && (

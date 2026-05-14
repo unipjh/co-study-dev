@@ -3,13 +3,16 @@ export default function SelectionActionPopup({
   onMemo,
   onSendToChat,
   onCancel,
+  onCancelAll,
+  onAddSelection,
   onAITutor,
   onCreateQuiz,
   isRegion = false,
+  pendingCount = 0,
 }) {
   if (!viewportRect) return null
 
-  const estimatedWidth = isRegion ? 190 : 270
+  const estimatedWidth = isRegion ? 210 : 430
   const top = Math.max(12, viewportRect.top - 48)
   const left = Math.min(
     window.innerWidth - estimatedWidth - 12,
@@ -28,11 +31,11 @@ export default function SelectionActionPopup({
         </button>
       )}
       <button style={styles.btn} onClick={onSendToChat}>
-        Chat에 보내기
+        Chat 보내기
       </button>
       {!isRegion && (
         <button style={styles.btn} onClick={onAITutor}>
-          AI 설명
+          즉시질문
         </button>
       )}
       {!isRegion && (
@@ -41,8 +44,18 @@ export default function SelectionActionPopup({
         </button>
       )}
       <button style={styles.cancelBtn} onClick={onCancel}>
-        취소
+        선택취소
       </button>
+      {!isRegion && (
+        <button style={styles.cancelBtn} onClick={onAddSelection}>
+          선택 추가
+        </button>
+      )}
+      {(pendingCount > 0 || !isRegion) && (
+        <button style={styles.cancelBtn} onClick={onCancelAll}>
+          전체취소
+        </button>
+      )}
     </div>
   )
 }
@@ -59,6 +72,8 @@ const styles = {
     background: '#1f2937',
     boxShadow: '0 8px 24px rgba(0,0,0,0.24)',
     whiteSpace: 'nowrap',
+    maxWidth: 'calc(100vw - 24px)',
+    overflowX: 'auto',
   },
   btn: {
     border: 'none',
@@ -69,6 +84,7 @@ const styles = {
     fontSize: 12,
     fontWeight: 700,
     cursor: 'pointer',
+    flexShrink: 0,
   },
   primaryBtn: {
     border: 'none',
@@ -79,6 +95,7 @@ const styles = {
     fontSize: 12,
     fontWeight: 800,
     cursor: 'pointer',
+    flexShrink: 0,
   },
   cancelBtn: {
     border: 'none',
@@ -89,5 +106,6 @@ const styles = {
     fontSize: 12,
     fontWeight: 700,
     cursor: 'pointer',
+    flexShrink: 0,
   },
 }

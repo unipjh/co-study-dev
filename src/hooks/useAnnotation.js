@@ -104,6 +104,15 @@ export default function useAnnotation(docId) {
     const updated = { ...current, ...patch }
     await setDoc(doc(itemsCol(uid, docId), id), updated)
     updateAnnotation(docId, id, patch)
+    pushUndo({
+      id: `update:${id}:${Date.now()}`,
+      message: '메모를 수정했습니다.',
+      undoLabel: '실행 취소',
+      undo: async () => {
+        await setDoc(doc(itemsCol(uid, docId), id), current)
+        updateAnnotation(docId, id, current)
+      },
+    })
   }
 
   async function remove(id) {

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import useAI from '../AI/useAI'
 import useDocumentIndex from '../../hooks/useDocumentIndex'
+import useQuizSessions from '../../hooks/useQuizSessions'
+import { stableHash } from '../../lib/studyIds'
 
 const SCOPE_OPTIONS = [
   { key: 'page', label: '현재 페이지' },
@@ -11,6 +13,7 @@ const SCOPE_OPTIONS = [
 export default function QuizPanel({ docId, annotations = [], currentPage = 1, quizSeed, onSendToChat }) {
   const { generateQuizItems } = useAI()
   const { indexed, indexing, getChunkByPage } = useDocumentIndex(docId)
+  const { sessions, saveSession } = useQuizSessions(docId)
 
   const [scope, setScope] = useState('page')
   const [selectionText, setSelectionText] = useState('')
@@ -19,6 +22,7 @@ export default function QuizPanel({ docId, annotations = [], currentPage = 1, qu
   const [revealed, setRevealed] = useState({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
+  const [activeSessionId, setActiveSessionId] = useState(null)
 
   useEffect(() => {
     if (!quizSeed) return
@@ -77,6 +81,15 @@ export default function QuizPanel({ docId, annotations = [], currentPage = 1, qu
       const result = await generateQuizItems(text, getScopeLabel())
       if (!result.length) throw new Error('생성된 문항이 없습니다.')
       setItems(result)
+      const saved = await saveSession({
+        scope,
+        scopeLabel: getScopeLabel(),
+        sourceTextHash: stableHash(text),
+        items: result,
+        answers: {},
+        revealed: {},
+      })
+      setActiveSessionId(saved?.id ?? null)
     } catch (err) {
       setError(err.message ?? '퀴즈 생성에 실패했습니다.')
     } finally {
@@ -91,6 +104,28 @@ export default function QuizPanel({ docId, annotations = [], currentPage = 1, qu
   function reveal(id) {
     setRevealed((prev) => ({ ...prev, [id]: true }))
   }
+
+  function loadSession(session) {
+    setActiveSessionId(session.id)
+    setScope(session.scope ?? 'page')
+    setItems(session.items ?? [])
+    setAnswers(session.answers ?? {})
+    setRevealed(session.revealed ?? {})
+    setError(null)
+  }
+
+  useEffect(() => {
+    if (!activeSessionId) return
+    const current = sessions.find((session) => session.id === activeSessionId)
+    if (!current || items.length === 0) return
+    saveSession({
+      ...current,
+      items,
+      answers,
+      revealed,
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [answers, revealed])
 
   function sendQuestionToChat(item) {
     onSendToChat?.({
@@ -155,6 +190,27 @@ export default function QuizPanel({ docId, annotations = [], currentPage = 1, qu
           {loading ? '생성 중...' : '퀴즈 생성'}
         </button>
       </div>
+
+      {sessions.length > 0 && (
+        <div style={styles.sessionStrip}>
+          <span style={styles.sessionTitle}>저장된 퀴즈</span>
+          <div style={styles.sessionList}>
+            {sessions.slice(0, 6).map((session) => (
+              <button
+                key={session.id}
+                type="button"
+                style={{
+                  ...styles.sessionBtn,
+                  ...(session.id === activeSessionId ? styles.sessionBtnActive : {}),
+                }}
+                onClick={() => loadSession(session)}
+              >
+                {session.scopeLabel || session.scope || 'Quiz'}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={styles.list}>
         {error && <p style={styles.error}>{error}</p>}
@@ -331,6 +387,42 @@ const styles = {
     fontSize: 13,
     fontWeight: 800,
     cursor: 'pointer',
+  },
+  sessionStrip: {
+    flexShrink: 0,
+    borderBottom: '1px solid #eeeeee',
+    background: '#fff',
+    padding: '9px 12px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 7,
+  },
+  sessionTitle: {
+    fontSize: 11,
+    fontWeight: 900,
+    color: '#4b5563',
+  },
+  sessionList: {
+    display: 'flex',
+    gap: 6,
+    overflowX: 'auto',
+    paddingBottom: 1,
+  },
+  sessionBtn: {
+    border: '1px solid #e5e7eb',
+    background: '#fff',
+    color: '#374151',
+    borderRadius: 7,
+    padding: '6px 8px',
+    fontSize: 11,
+    fontWeight: 800,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  sessionBtnActive: {
+    borderColor: '#6366f1',
+    background: '#eef2ff',
+    color: '#312e81',
   },
   list: {
     flex: 1,

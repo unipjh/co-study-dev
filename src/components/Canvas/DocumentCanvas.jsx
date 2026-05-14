@@ -8,6 +8,7 @@ import useAnnotation from '../../hooks/useAnnotation'
 import useAI, { buildRagSystemInstruction, NO_CHUNK_FALLBACK } from '../AI/useAI'
 import useDocumentIndex from '../../hooks/useDocumentIndex'
 import useLearningUnits from '../../hooks/useLearningUnits'
+import useLearningQuestionAnswers from '../../hooks/useLearningQuestionAnswers'
 import { buildLearningUnitsFromChunks, findUnitForPage } from '../../lib/learningUnits'
 import HighlightLayer from './HighlightLayer'
 import SelectionToolbar from './SelectionToolbar'
@@ -72,7 +73,18 @@ const SIDEBAR_TABS = [
   { key: 'quiz',    label: 'Quiz' },
 ]
 
-export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, activeTab, onTabChange, sidebarOpen, onSidebarToggle }) {
+export default function DocumentCanvas({
+  docId,
+  onSendToChat,
+  onCreateQuiz,
+  activeTab,
+  onTabChange,
+  sidebarOpen,
+  sidebarWidth = 0,
+  isMobile = false,
+  onSidebarToggle,
+  onShowSuggestedQuestions,
+}) {
   const { pdfBlob, currentPage, numPages, zoomLevel, viewMode, selectionMode, setNumPages, setCurrentPage, setViewMode, setSelectionMode } =
     useDocumentStore()
 
@@ -90,6 +102,7 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
     generatingByUnit,
     errorsByUnit,
   } = useLearningUnits(docId)
+  const { unresolvedQuestions } = useLearningQuestionAnswers(docId)
 
   const pdfFile = useMemo(() => pdfBlob ?? null, [pdfBlob])
   const currentPageIndex = Math.max(0, currentPage - 1)
@@ -105,6 +118,7 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
   const currentPageRange = currentUnit || currentCandidateUnit
     ? `${(currentUnit ?? currentCandidateUnit).startPageIndex + 1}-${(currentUnit ?? currentCandidateUnit).endPageIndex + 1}p`
     : `${currentPage}p`
+  const activeBlockingUnit = currentUnit?.focusQuestions?.length ? currentUnit : null
 
   const [selection, setSelection]               = useState(null)
   const [memoToolbarOpen, setMemoToolbarOpen]   = useState(false)
@@ -115,6 +129,7 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
   const [aiState, setAiState]                   = useState(null)
   const [regionError, setRegionError]           = useState(null)
   const [contextMenu, setContextMenu]           = useState(null)
+  const [blockedPageTarget, setBlockedPageTarget] = useState(null)
   // 멀티 드래그 누적 그룹
   const [pendingGroups, setPendingGroups]       = useState([])
   const [wrapperWidth, setWrapperWidth]         = useState(800)
@@ -193,7 +208,7 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
       }
 
       if (best && best.pageIndex + 1 !== scrollToPageRef.current) {
-        setCurrentPage(best.pageIndex + 1)
+        requestPageChange(best.pageIndex + 1, { reason: 'scroll' })
       }
     }
 
@@ -296,7 +311,7 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
         targetPageRef.current = next
         clearTimeout(navDebounceRef.current)
         navDebounceRef.current = setTimeout(() => {
-          setCurrentPage(targetPageRef.current)
+          requestPageChange(targetPageRef.current, { reason: 'keyboard' })
           targetPageRef.current = null
         }, 120)
       } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
@@ -305,7 +320,7 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
         targetPageRef.current = next
         clearTimeout(navDebounceRef.current)
         navDebounceRef.current = setTimeout(() => {
-          setCurrentPage(targetPageRef.current)
+          requestPageChange(targetPageRef.current, { reason: 'keyboard' })
           targetPageRef.current = null
         }, 120)
       }
@@ -538,6 +553,33 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
     handleMouseUp()
   }, [selectionMode, viewMode, handleMouseUp])
 
+  function getUnitIdForPage(pageIndex) {
+    const unit = getUnitForPage(pageIndex) ?? findUnitForPage(candidateUnits, pageIndex)
+    return unit?.id ?? (unit ? `unit_${unit.startPageIndex}_${unit.endPageIndex}` : null)
+  }
+
+  function requestPageChange(nextPage, options = {}) {
+    const clampedPage = Math.min(numPages, Math.max(1, nextPage))
+    if (!clampedPage || clampedPage === currentPage) return true
+
+    const currentUnitId = activeBlockingUnit?.id ?? null
+    const targetUnitId = getUnitIdForPage(clampedPage - 1)
+    const pending = activeBlockingUnit ? unresolvedQuestions(activeBlockingUnit) : []
+    const shouldBlock = pending.length > 0 && currentUnitId && targetUnitId !== currentUnitId
+
+    if (shouldBlock) {
+      setBlockedPageTarget({ page: clampedPage, reason: options.reason ?? 'page' })
+      onShowSuggestedQuestions?.()
+      if (!onShowSuggestedQuestions) onTabChange?.('chat')
+      return false
+    }
+
+    setBlockedPageTarget(null)
+    setCurrentPage(clampedPage)
+    if (options.viewMode) setViewMode(options.viewMode)
+    return true
+  }
+
   // ── Pan 모드 드래그 스크롤 ────────────────────────────────────
   const handlePanMouseDown = useCallback((e) => {
     if (selectionMode !== 'pan') return
@@ -755,6 +797,23 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
     })
   }
 
+  function handleSummarizePage(pageIndex = currentPage - 1) {
+    const chunk = getChunkByPage(pageIndex)
+    const pageText = chunk?.text?.trim()
+    onSendToChat?.({
+      id: `page_summary_${pageIndex}_${Date.now()}`,
+      docId,
+      pageIndex,
+      text: pageText || `${pageIndex + 1}p`,
+      color: 'blue',
+      content: '현재 페이지를 핵심 개념 중심으로 요약해줘.',
+      type: 'page-summary',
+      transient: true,
+      autoPrompt: '현재 페이지를 핵심 개념, 중요한 용어, 시험에 나올 만한 포인트 중심으로 요약해줘.',
+      createdAt: new Date().toISOString(),
+    })
+  }
+
   function handleContextMenu(e, pageIndex = currentPage - 1) {
     if (selectionMode === 'region') return
     e.preventDefault()
@@ -835,6 +894,21 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
     setActiveAnnotationPage(pageIdx ?? ann.pageIndex)
   }
 
+  function handleAnnotationContextMenu(e, ann, pageIdx) {
+    setSelection(null)
+    setMemoToolbarOpen(false)
+    setDragRects(null)
+    setActiveAnnotation(null)
+    setActiveAnnotationPage(null)
+    setContextMenu({
+      x: e.clientX,
+      y: e.clientY,
+      pageIndex: pageIdx ?? ann.pageIndex,
+      mode: 'annotation',
+      annotation: ann,
+    })
+  }
+
   async function handleAITutor() {
     if (!selection) return
     const saved = selection
@@ -894,6 +968,12 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
   const pendingOverlayRects = pendingGroups
     .filter((g) => g.pageIndex === currentPage - 1)
     .flatMap((g) => g.rects)
+  const rightPageNavOffset = 12
+  const pageNavHidden = sidebarOpen && isMobile
+  const canvasWrapperStyle = {
+    ...styles.canvasWrapper,
+    marginRight: sidebarOpen && !isMobile ? sidebarWidth : 0,
+  }
 
   // pan 모드 outer 스타일
   const outerStyle = {
@@ -917,7 +997,7 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
   }
 
   return (
-    <div style={styles.canvasWrapper} ref={wrapperRef}>
+    <div style={canvasWrapperStyle} ref={wrapperRef}>
       <LearningGoalOverlay
         goal={currentUnit}
         loading={currentGoalLoading}
@@ -966,6 +1046,7 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
                 pageIndex={currentPage - 1}
                 containerSize={containerSize}
                 onClickAnnotation={handleAnnotationClick}
+                onContextMenuAnnotation={handleAnnotationContextMenu}
               />
               {/* 멀티 드래그 누적 오버레이 */}
               {pendingOverlayRects.length > 0 && (
@@ -1034,6 +1115,7 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
                     pageIndex={i}
                     containerSize={containerSize}
                     onClickAnnotation={handleAnnotationClick}
+                    onContextMenuAnnotation={handleAnnotationContextMenu}
                   />
                   {pendingRects.length > 0 && (
                     <SelectionOverlay rects={pendingRects} />
@@ -1073,18 +1155,18 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
       </div>
 
       {/* 양 옆 페이지 이동 버튼 */}
-      {viewMode === 'page' && numPages > 0 && (
+      {viewMode === 'page' && numPages > 0 && !pageNavHidden && (
         <>
           <button
             style={{ ...styles.pageNavBtn, left: 12, opacity: currentPage <= 1 ? 0.25 : 0.65 }}
-            onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+            onClick={() => requestPageChange(currentPage - 1, { reason: 'button' })}
             disabled={currentPage <= 1}
           >
             ‹
           </button>
           <button
-            style={{ ...styles.pageNavBtn, right: 12, opacity: currentPage >= numPages ? 0.25 : 0.65 }}
-            onClick={() => setCurrentPage(Math.min(numPages, currentPage + 1))}
+            style={{ ...styles.pageNavBtn, right: rightPageNavOffset, opacity: currentPage >= numPages ? 0.25 : 0.65 }}
+            onClick={() => requestPageChange(currentPage + 1, { reason: 'button' })}
             disabled={currentPage >= numPages}
           >
             ›
@@ -1093,6 +1175,16 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
       )}
 
       {/* 영역 캡처 실패 알림 */}
+      {blockedPageTarget && (
+        <div style={styles.blockNotice}>
+          <strong>추천 질문 답변이 필요합니다.</strong>
+          <span>답변을 저장하거나 Skip을 누르면 {blockedPageTarget.page}페이지로 이동할 수 있습니다.</span>
+          <button type="button" style={styles.blockNoticeBtn} onClick={() => onShowSuggestedQuestions?.() ?? onTabChange?.('chat')}>
+            질문 보기
+          </button>
+        </div>
+      )}
+
       {regionError && (
         <div style={styles.regionErrorToast}>{regionError}</div>
       )}
@@ -1201,7 +1293,10 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
           onSendToChat={selection.isRegion ? handleSendImageToChat : handleSendSelectionToChat}
           onAITutor={handleAITutor}
           onCreateQuiz={handleCreateQuizFromSelection}
-          onCancel={handleSelectionClose}
+          onCancel={handleSoftClose}
+          onCancelAll={handleSelectionClose}
+          onAddSelection={handleAddSelection}
+          pendingCount={pendingGroups.length}
         />
       )}
 
@@ -1227,14 +1322,24 @@ export default function DocumentCanvas({ docId, onSendToChat, onCreateQuiz, acti
           x={contextMenu.x}
           y={contextMenu.y}
           mode={contextMenu.mode}
+          annotation={contextMenu.annotation}
           onClose={() => setContextMenu(null)}
           onMemo={() => setMemoToolbarOpen(true)}
-          onSendToChat={handleSendSelectionToChat}
+          onSendToChat={contextMenu.mode === 'annotation' ? (ann) => onSendToChat?.(ann) : handleSendSelectionToChat}
+          onAddSelection={handleAddSelection}
           onCreateQuiz={contextMenu.mode === 'selection'
             ? handleCreateQuizFromSelection
             : () => handleCreateQuizFromPage(contextMenu.pageIndex)}
+          onSummarizePage={() => handleSummarizePage(contextMenu.pageIndex)}
           onShowMemos={() => onTabChange?.('memo')}
           onCancelSelection={handleSelectionClose}
+          onEditAnnotation={(ann) => {
+            setActiveAnnotation(ann)
+            setActiveAnnotationPage(contextMenu.pageIndex ?? ann.pageIndex)
+          }}
+          onDeleteAnnotation={(ann) => {
+            if (ann?.id) removeAnnotation(ann.id)
+          }}
         />
       )}
 
@@ -1306,6 +1411,35 @@ const styles = {
     pointerEvents: 'none',
     zIndex: 30,
     whiteSpace: 'nowrap',
+  },
+  blockNotice: {
+    position: 'absolute',
+    top: 16,
+    left: '50%',
+    transform: 'translateX(-50%)',
+    zIndex: 35,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    maxWidth: 'calc(100% - 32px)',
+    padding: '9px 12px',
+    borderRadius: 9,
+    background: '#fff',
+    border: '1px solid #f59e0b',
+    boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
+    color: '#111827',
+    fontSize: 12,
+  },
+  blockNoticeBtn: {
+    border: 'none',
+    borderRadius: 7,
+    background: '#111827',
+    color: '#fff',
+    padding: '6px 9px',
+    fontSize: 12,
+    fontWeight: 800,
+    cursor: 'pointer',
+    flexShrink: 0,
   },
   bottomBar: {
     position: 'absolute',
