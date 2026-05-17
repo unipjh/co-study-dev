@@ -30,6 +30,8 @@ export default function SidePanel({
   onPendingChatPromptConsumed,
   onPageJump,
   focusSuggestedTick,
+  questionGateEnabled,
+  onToggleQuestionGate,
   quizSeed,
   activeTab,
   currentPage,
@@ -46,6 +48,8 @@ export default function SidePanel({
           onPendingPromptConsumed={onPendingChatPromptConsumed}
           onPageJump={onPageJump}
           focusSuggestedTick={focusSuggestedTick}
+          questionGateEnabled={questionGateEnabled}
+          onToggleQuestionGate={onToggleQuestionGate}
         />
       )}
       {activeTab === 'memo' && (

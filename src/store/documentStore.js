@@ -16,7 +16,7 @@ const useDocumentStore = create((set) => ({
     set({ pdfBlob: blob, pdfName: name, currentPage: 1, numPages: 0, selectionMode: 'text' }),
   setNumPages: (n) => set({ numPages: n }),
   setCurrentPage: (page) => set({ currentPage: page }),
-  setZoomLevel: (level) => set({ zoomLevel: Math.min(2.0, Math.max(0.5, level)) }),
+  setZoomLevel: (level) => set({ zoomLevel: Math.min(2.0, Math.max(0.3, level)) }),
   setViewMode: (mode) => set({ viewMode: mode }),
   setSelectionMode: (mode) => set({ selectionMode: mode }),
   setSelection: (text, rect) => set({ selectedText: text, selectionRect: rect }),

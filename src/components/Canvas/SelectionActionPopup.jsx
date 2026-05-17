@@ -1,3 +1,5 @@
+import { useEffect, useRef } from 'react'
+
 export default function SelectionActionPopup({
   viewportRect,
   onMemo,
@@ -6,13 +8,22 @@ export default function SelectionActionPopup({
   onCancelAll,
   onAddSelection,
   onAITutor,
-  onCreateQuiz,
   isRegion = false,
   pendingCount = 0,
 }) {
+  const ref = useRef(null)
+
+  useEffect(() => {
+    function handlePointerDown(e) {
+      if (ref.current && !ref.current.contains(e.target)) onCancel?.()
+    }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [onCancel])
+
   if (!viewportRect) return null
 
-  const estimatedWidth = isRegion ? 210 : 430
+  const estimatedWidth = isRegion ? 210 : 380
   const top = Math.max(12, viewportRect.top - 48)
   const left = Math.min(
     window.innerWidth - estimatedWidth - 12,
@@ -21,6 +32,7 @@ export default function SelectionActionPopup({
 
   return (
     <div
+      ref={ref}
       style={{ ...styles.wrap, top, left }}
       onPointerDown={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.preventDefault()}
@@ -36,11 +48,6 @@ export default function SelectionActionPopup({
       {!isRegion && (
         <button style={styles.btn} onClick={onAITutor}>
           즉시질문
-        </button>
-      )}
-      {!isRegion && (
-        <button style={styles.btn} onClick={onCreateQuiz}>
-          Quiz
         </button>
       )}
       <button style={styles.cancelBtn} onClick={onCancel}>

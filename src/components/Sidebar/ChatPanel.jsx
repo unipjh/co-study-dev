@@ -51,6 +51,8 @@ export default function ChatPanel({
   onPendingPromptConsumed,
   onPageJump,
   focusSuggestedTick = 0,
+  questionGateEnabled = true,
+  onToggleQuestionGate,
 }) {
   const { messages, addMessage } = useChat(docId)
   const { chat } = useAI()
@@ -302,6 +304,9 @@ export default function ChatPanel({
             <span style={styles.suggestedCount}>
               {suggestedQuestions.filter((q) => !getAnswer(currentUnit?.id, q)?.status).length}개 남음
             </span>
+            <button type="button" style={styles.gateHeaderBtn} onClick={onToggleQuestionGate}>
+              제한 {questionGateEnabled ? 'ON' : 'OFF'}
+            </button>
             <button type="button" style={styles.suggestedToggle} onClick={toggleSuggestedOpen}>
               {suggestedOpen ? '접기' : '펼치기'}
             </button>
@@ -639,6 +644,17 @@ const styles = {
     padding: '4px 8px',
     fontSize: 11,
     fontWeight: 800,
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  gateHeaderBtn: {
+    border: '1px solid #e5e7eb',
+    background: '#f9fafb',
+    color: '#374151',
+    borderRadius: 6,
+    padding: '4px 7px',
+    fontSize: 10,
+    fontWeight: 900,
     cursor: 'pointer',
     flexShrink: 0,
   },

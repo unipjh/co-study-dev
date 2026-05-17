@@ -74,14 +74,26 @@ export function buildLearningUnitsFromChunks(chunks) {
     }))
 
   if (pages.length === 0) return []
+  const firstPage = pages.find((page) => page.pageIndex === 0) ?? pages[0]
+  const remainingPages = pages.filter((page) => page.pageIndex !== firstPage.pageIndex)
 
   const units = []
+  units.push({
+    ...makeUnit([firstPage]),
+    id: `unit_${firstPage.pageIndex}_${firstPage.pageIndex}`,
+    sourceScope: 'document-overview',
+    pages: pages.map((page) => ({
+      pageIndex: page.pageIndex,
+      text: normalizeText(page.text),
+    })),
+  })
+
   let current = []
   let currentChars = 0
 
-  for (let i = 0; i < pages.length; i += 1) {
-    const page = pages[i]
-    const next = pages[i + 1]
+  for (let i = 0; i < remainingPages.length; i += 1) {
+    const page = remainingPages[i]
+    const next = remainingPages[i + 1]
     current.push(page)
     currentChars += page.text.length
 
@@ -105,7 +117,7 @@ export function buildLearningUnitsFromChunks(chunks) {
   if (units.length >= 2) {
     const last = units[units.length - 1]
     const prev = units[units.length - 2]
-    if (last.pageIndexes.length === 1 && prev.pageIndexes.length < MAX_PAGES) {
+    if (last.pageIndexes.length === 1 && prev.pageIndexes.length < MAX_PAGES && prev.sourceScope !== 'document-overview') {
       const mergedPages = [...prev.pages, ...last.pages]
       units.splice(units.length - 2, 2, makeUnit(mergedPages))
     }
@@ -115,9 +127,12 @@ export function buildLearningUnitsFromChunks(chunks) {
 }
 
 export function findUnitForPage(units, pageIndex) {
-  return (units ?? []).find((unit) =>
+  const matches = (units ?? []).filter((unit) =>
     unit.startPageIndex <= pageIndex && pageIndex <= unit.endPageIndex
-  ) ?? null
+  )
+  return matches.find((unit) => unit.startPageIndex === pageIndex && unit.endPageIndex === pageIndex) ??
+    matches.sort((a, b) => (a.endPageIndex - a.startPageIndex) - (b.endPageIndex - b.startPageIndex))[0] ??
+    null
 }
 
 export function getNeighborUnits(units, pageIndex) {

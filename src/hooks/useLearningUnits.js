@@ -51,7 +51,7 @@ export default function useLearningUnits(docId) {
     const unsub = onSnapshot(unitsCol(uid, docId), (snapshot) => {
       const next = snapshot.docs
         .map((item) => ({ id: item.id, ...item.data() }))
-        .sort((a, b) => a.startPageIndex - b.startPageIndex)
+        .sort((a, b) => (a.startPageIndex - b.startPageIndex) || (a.endPageIndex - b.endPageIndex))
       setUnits(next)
     })
     return unsub
@@ -96,7 +96,7 @@ export default function useLearningUnits(docId) {
       await setDoc(doc(unitsCol(uid, docId), id), nextUnit)
       setUnits((prev) => {
         const rest = prev.filter((unit) => unit.id !== id)
-        return [...rest, nextUnit].sort((a, b) => a.startPageIndex - b.startPageIndex)
+        return [...rest, nextUnit].sort((a, b) => (a.startPageIndex - b.startPageIndex) || (a.endPageIndex - b.endPageIndex))
       })
       return nextUnit
     } catch (err) {

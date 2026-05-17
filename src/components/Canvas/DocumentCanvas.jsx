@@ -84,8 +84,10 @@ export default function DocumentCanvas({
   isMobile = false,
   onSidebarToggle,
   onShowSuggestedQuestions,
+  questionGateEnabled = true,
+  onToggleQuestionGate,
 }) {
-  const { pdfBlob, currentPage, numPages, zoomLevel, viewMode, selectionMode, setNumPages, setCurrentPage, setViewMode, setSelectionMode } =
+  const { pdfBlob, currentPage, numPages, zoomLevel, viewMode, selectionMode, setNumPages, setCurrentPage, setZoomLevel, setViewMode, setSelectionMode } =
     useDocumentStore()
 
   const { annotations, add: addAnnotation, update: updateAnnotation, remove: removeAnnotation, undoLast } =
@@ -143,6 +145,7 @@ export default function DocumentCanvas({
   const wrapperRef       = useRef(null)  // canvasWrapper 너비 측정용
   const navDebounceRef   = useRef(null)  // 방향키 페이지 이동 debounce 타이머
   const targetPageRef    = useRef(null)  // debounce 중 목표 페이지
+  const mobileAutoFitZoomRef = useRef(null)
 
   // 영역 선택 드래그 상태
   const [regionDrag, setRegionDrag] = useState(null)
@@ -154,6 +157,10 @@ export default function DocumentCanvas({
   useEffect(() => {
     scrollToPageRef.current = currentPage
   }, [currentPage])
+
+  useEffect(() => {
+    mobileAutoFitZoomRef.current = null
+  }, [docId, isMobile])
 
   useEffect(() => {
     if (!indexed || allChunks.length === 0) return
@@ -208,7 +215,11 @@ export default function DocumentCanvas({
       }
 
       if (best && best.pageIndex + 1 !== scrollToPageRef.current) {
-        requestPageChange(best.pageIndex + 1, { reason: 'scroll' })
+        const moved = requestPageChange(best.pageIndex + 1, { reason: 'scroll' })
+        if (!moved) {
+          const currentEl = pageRefs.current[scrollToPageRef.current - 1]
+          currentEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        }
       }
     }
 
@@ -226,7 +237,7 @@ export default function DocumentCanvas({
       window.removeEventListener('resize', scheduleUpdate)
       if (frame != null) cancelAnimationFrame(frame)
     }
-  }, [viewMode, numPages, zoomLevel, setCurrentPage])
+  }, [viewMode, numPages, zoomLevel, setCurrentPage, currentPage, activeBlockingUnit, questionGateEnabled, unresolvedQuestions])
 
   // ── canvasWrapper 너비 감지 (하단 바 스케일용) ───────────────
   useEffect(() => {
@@ -241,6 +252,7 @@ export default function DocumentCanvas({
   useEffect(() => {
     function handleKeyDown(e) {
       const ARROW_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
+      const key = e.key || e.code
       const tag = document.activeElement?.tagName?.toLowerCase()
       const isTextInput = tag === 'input' || tag === 'textarea' || document.activeElement?.isContentEditable
 
@@ -265,13 +277,13 @@ export default function DocumentCanvas({
         return
       }
       // Shift+Arrow: 브라우저 표준처럼 선택 끝점 확장/축소
-      if (e.shiftKey && selection && ARROW_KEYS.includes(e.key)) {
+      if (e.shiftKey && selection && ARROW_KEYS.includes(key)) {
         e.preventDefault()
         const domSel = window.getSelection()
         if (!domSel || domSel.rangeCount === 0) return
 
-        const direction  = (e.key === 'ArrowRight' || e.key === 'ArrowDown') ? 'forward' : 'backward'
-        const granularity = (e.key === 'ArrowLeft'  || e.key === 'ArrowRight') ? 'character' : 'line'
+        const direction  = (key === 'ArrowRight' || key === 'ArrowDown') ? 'forward' : 'backward'
+        const granularity = (key === 'ArrowLeft'  || key === 'ArrowRight') ? 'character' : 'line'
         domSel.modify('extend', direction, granularity)
 
         // DOM 선택 변경 후 selection 재추출
@@ -305,8 +317,9 @@ export default function DocumentCanvas({
       // page 모드 방향키 전환 (shift 없을 때)
       if (viewMode !== 'page' || e.shiftKey) return
       if (isTextInput) return
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      if (key === 'ArrowLeft' || key === 'ArrowUp') {
         e.preventDefault()
+        e.stopPropagation()
         const next = Math.max(1, (targetPageRef.current ?? currentPage) - 1)
         targetPageRef.current = next
         clearTimeout(navDebounceRef.current)
@@ -314,8 +327,9 @@ export default function DocumentCanvas({
           requestPageChange(targetPageRef.current, { reason: 'keyboard' })
           targetPageRef.current = null
         }, 120)
-      } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      } else if (key === 'ArrowRight' || key === 'ArrowDown') {
         e.preventDefault()
+        e.stopPropagation()
         const next = Math.min(numPages, (targetPageRef.current ?? currentPage) + 1)
         targetPageRef.current = next
         clearTimeout(navDebounceRef.current)
@@ -325,9 +339,9 @@ export default function DocumentCanvas({
         }, 120)
       }
     }
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [viewMode, currentPage, numPages, setCurrentPage, selection, dragRects, pendingGroups.length, activeAnnotation, aiState, contextMenu, undoLast, reset])
+    window.addEventListener('keydown', handleKeyDown, true)
+    return () => window.removeEventListener('keydown', handleKeyDown, true)
+  }, [viewMode, currentPage, numPages, setCurrentPage, selection, dragRects, pendingGroups.length, activeAnnotation, aiState, contextMenu, undoLast, reset, questionGateEnabled, activeBlockingUnit, unresolvedQuestions])
 
   // ── 터치 팬 + 핀치 줌 ────────────────────────────────────────
   useEffect(() => {
@@ -395,13 +409,37 @@ export default function DocumentCanvas({
     if (width > 0 && height > 0) setContainerSize({ width, height })
   }
 
+  function fitMobilePageToViewport(el) {
+    if (!isMobile || !el || !wrapperWidth) return
+    if (mobileAutoFitZoomRef.current != null && Math.abs(zoomLevel - mobileAutoFitZoomRef.current) > 0.02) return
+
+    const { width } = el.getBoundingClientRect()
+    const viewportWidth = Math.min(wrapperWidth, window.innerWidth || wrapperWidth)
+    const targetWidth = Math.max(280, viewportWidth - 48)
+    if (width <= targetWidth + 8) return
+
+    const nextZoom = Math.max(0.3, Math.min(1, Math.floor((zoomLevel * targetWidth / width) * 100) / 100))
+    if (Math.abs(nextZoom - zoomLevel) < 0.02) return
+    mobileAutoFitZoomRef.current = nextZoom
+    setZoomLevel(nextZoom)
+  }
+
   function handlePageRenderSuccess() {
     measureContainer(pageContainerRef.current)
+    fitMobilePageToViewport(pageContainerRef.current)
   }
 
   function handleFirstScrollRenderSuccess() {
     measureContainer(firstScrollRef.current)
+    fitMobilePageToViewport(firstScrollRef.current)
   }
+
+  useEffect(() => {
+    if (!isMobile) return
+    const el = viewMode === 'page' ? pageContainerRef.current : firstScrollRef.current
+    fitMobilePageToViewport(el)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMobile, wrapperWidth, viewMode, currentPage])
 
   useEffect(() => {
     function handleSelectionChange() {
@@ -561,6 +599,18 @@ export default function DocumentCanvas({
   function requestPageChange(nextPage, options = {}) {
     const clampedPage = Math.min(numPages, Math.max(1, nextPage))
     if (!clampedPage || clampedPage === currentPage) return true
+    if (clampedPage < currentPage) {
+      setBlockedPageTarget(null)
+      setCurrentPage(clampedPage)
+      if (options.viewMode) setViewMode(options.viewMode)
+      return true
+    }
+    if (!questionGateEnabled) {
+      setBlockedPageTarget(null)
+      setCurrentPage(clampedPage)
+      if (options.viewMode) setViewMode(options.viewMode)
+      return true
+    }
 
     const currentUnitId = activeBlockingUnit?.id ?? null
     const targetUnitId = getUnitIdForPage(clampedPage - 1)
@@ -569,8 +619,6 @@ export default function DocumentCanvas({
 
     if (shouldBlock) {
       setBlockedPageTarget({ page: clampedPage, reason: options.reason ?? 'page' })
-      onShowSuggestedQuestions?.()
-      if (!onShowSuggestedQuestions) onTabChange?.('chat')
       return false
     }
 
@@ -978,9 +1026,18 @@ export default function DocumentCanvas({
   // pan 모드 outer 스타일
   const outerStyle = {
     ...styles.outer,
+    ...(isMobile ? styles.outerMobile : {}),
     cursor: selectionMode === 'pan' ? 'grab' : undefined,
     userSelect: selectionMode === 'pan' ? 'none' : undefined,
     touchAction: selectionMode === 'pan' ? 'none' : 'pan-x pan-y',
+  }
+  const bottomBarStyle = {
+    ...styles.bottomBar,
+    ...(isMobile ? styles.bottomBarMobile : {}),
+  }
+  const blockNoticeStyle = {
+    ...styles.blockNotice,
+    ...(isMobile ? styles.blockNoticeMobile : {}),
   }
 
   if (!pdfBlob) {
@@ -1176,12 +1233,33 @@ export default function DocumentCanvas({
 
       {/* 영역 캡처 실패 알림 */}
       {blockedPageTarget && (
-        <div style={styles.blockNotice}>
-          <strong>추천 질문 답변이 필요합니다.</strong>
-          <span>답변을 저장하거나 Skip을 누르면 {blockedPageTarget.page}페이지로 이동할 수 있습니다.</span>
-          <button type="button" style={styles.blockNoticeBtn} onClick={() => onShowSuggestedQuestions?.() ?? onTabChange?.('chat')}>
-            질문 보기
+        <div style={blockNoticeStyle}>
+          <button
+            type="button"
+            style={styles.blockCloseBtn}
+            onClick={() => setBlockedPageTarget(null)}
+            aria-label="제한 안내 닫기"
+            title="닫기"
+          >
+            X
           </button>
+          <button
+            type="button"
+            style={styles.gateToggleBtn}
+            onClick={() => {
+              setBlockedPageTarget(null)
+              onToggleQuestionGate?.()
+            }}
+          >
+            제한 끄기
+          </button>
+          <div style={styles.blockNoticeText}>
+            <strong>추천 질문 답변이 필요합니다.</strong>
+            <span>
+              온전한 학습을 위해 페이지를 넘기기 전 핵심 질문에 먼저 답하도록 돕는 장치입니다.
+              답변 저장 또는 Skip 후 {blockedPageTarget.page}페이지로 이동할 수 있습니다.
+            </span>
+          </div>
         </div>
       )}
 
@@ -1190,7 +1268,7 @@ export default function DocumentCanvas({
       )}
 
       {/* 하단 플로팅 컨트롤 바 */}
-      <div style={styles.bottomBar}>
+      <div style={bottomBarStyle}>
         <button
           title="페이지 뷰"
           style={{ ...styles.barBtn, ...(viewMode === 'page' ? styles.barBtnActive : {}) }}
@@ -1230,7 +1308,7 @@ export default function DocumentCanvas({
           ✋
         </button>
 
-        {selectionMode === 'text' && viewMode === 'page' && (
+        {selectionMode === 'text' && viewMode === 'page' && !isMobile && (
           <>
             <span style={styles.barDivider} />
             <button
@@ -1257,7 +1335,7 @@ export default function DocumentCanvas({
           </span>
         )}
 
-        <span style={styles.barSpacer} />
+        <span style={{ ...styles.barSpacer, ...(isMobile ? styles.barSpacerMobile : {}) }} />
 
         {SIDEBAR_TABS.map((tab) => {
           const isActive = sidebarOpen && activeTab === tab.key
@@ -1373,6 +1451,9 @@ const styles = {
     display: 'block',
     padding: 24,
   },
+  outerMobile: {
+    padding: '24px 12px 92px',
+  },
   hint: { color: '#aaa', fontSize: 15, alignSelf: 'center' },
   loadingCenter: {
     alignSelf: 'center',
@@ -1420,7 +1501,7 @@ const styles = {
     zIndex: 35,
     display: 'flex',
     alignItems: 'center',
-    gap: 10,
+    gap: 12,
     maxWidth: 'calc(100% - 32px)',
     padding: '9px 12px',
     borderRadius: 9,
@@ -1429,6 +1510,48 @@ const styles = {
     boxShadow: '0 10px 30px rgba(0,0,0,0.18)',
     color: '#111827',
     fontSize: 12,
+  },
+  blockNoticeMobile: {
+    top: 10,
+    left: 12,
+    right: 12,
+    transform: 'none',
+    alignItems: 'flex-start',
+    maxWidth: 'none',
+    padding: '10px 36px 10px 10px',
+  },
+  blockCloseBtn: {
+    position: 'absolute',
+    top: 6,
+    right: 8,
+    width: 22,
+    height: 22,
+    border: 'none',
+    borderRadius: 6,
+    background: 'transparent',
+    color: '#6b7280',
+    fontSize: 12,
+    fontWeight: 900,
+    cursor: 'pointer',
+    lineHeight: '22px',
+  },
+  blockNoticeText: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+    lineHeight: 1.45,
+  },
+  gateToggleBtn: {
+    borderRadius: 7,
+    background: '#fff7ed',
+    border: '1px solid #fed7aa',
+    color: '#9a3412',
+    padding: '7px 9px',
+    fontSize: 12,
+    fontWeight: 900,
+    cursor: 'pointer',
+    flexShrink: 0,
+    whiteSpace: 'nowrap',
   },
   blockNoticeBtn: {
     border: 'none',
@@ -1464,6 +1587,16 @@ const styles = {
     overflowX: 'auto',
     scrollbarWidth: 'none',
   },
+  bottomBarMobile: {
+    bottom: 12,
+    display: 'flex',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    rowGap: 4,
+    maxWidth: 'calc(100% - 20px)',
+    padding: '5px 7px',
+    overflowX: 'hidden',
+  },
   barBtn: {
     padding: '4px 10px',
     borderRadius: 7,
@@ -1491,6 +1624,9 @@ const styles = {
   barSpacer: {
     flex: 1,
     minWidth: 16,
+  },
+  barSpacerMobile: {
+    display: 'none',
   },
   indexBadge: {
     fontSize: 10,

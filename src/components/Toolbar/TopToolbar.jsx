@@ -1,6 +1,6 @@
 import useDocumentStore from '../../store/documentStore'
 
-export default function TopToolbar({ onHome, onPageLabelClick }) {
+export default function TopToolbar({ onHome, onPageLabelClick, onPageChange }) {
   const {
     pdfName, currentPage, numPages, zoomLevel, viewMode,
     setCurrentPage, setZoomLevel,
@@ -20,7 +20,7 @@ export default function TopToolbar({ onHome, onPageLabelClick }) {
       </div>
 
       <div style={styles.center}>
-        <button style={{ ...styles.iconBtn, opacity: zoomLevel <= 0.5 ? 0.35 : 1 }} disabled={zoomLevel <= 0.5} onClick={() => setZoomLevel(zoomLevel - 0.1)}>−</button>
+        <button style={{ ...styles.iconBtn, opacity: zoomLevel <= 0.3 ? 0.35 : 1 }} disabled={zoomLevel <= 0.3} onClick={() => setZoomLevel(zoomLevel - 0.1)}>−</button>
         <span style={styles.zoomLabel}>{Math.round(zoomLevel * 100)}%</span>
         <button style={{ ...styles.iconBtn, opacity: zoomLevel >= 2.0 ? 0.35 : 1 }} disabled={zoomLevel >= 2.0} onClick={() => setZoomLevel(zoomLevel + 0.1)}>+</button>
 
@@ -29,7 +29,11 @@ export default function TopToolbar({ onHome, onPageLabelClick }) {
             <span style={styles.divider} />
             <button
               style={styles.iconBtn}
-              onClick={() => setCurrentPage(Math.max(1, currentPage - 1))}
+              onClick={() => {
+                const next = Math.max(1, currentPage - 1)
+                if (onPageChange) onPageChange(next)
+                else setCurrentPage(next)
+              }}
               disabled={currentPage <= 1}
             >
               ←
@@ -39,7 +43,11 @@ export default function TopToolbar({ onHome, onPageLabelClick }) {
             </button>
             <button
               style={styles.iconBtn}
-              onClick={() => setCurrentPage(Math.min(numPages, currentPage + 1))}
+              onClick={() => {
+                const next = Math.min(numPages, currentPage + 1)
+                if (onPageChange) onPageChange(next)
+                else setCurrentPage(next)
+              }}
               disabled={currentPage >= numPages}
             >
               →

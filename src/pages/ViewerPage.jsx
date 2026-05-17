@@ -31,6 +31,9 @@ export default function ViewerPage() {
   const [quizSeed,           setQuizSeed]            = useState(null)
   const [pendingChatPrompt,  setPendingChatPrompt]   = useState(null)
   const [focusSuggestedTick, setFocusSuggestedTick]   = useState(0)
+  const [questionGateEnabled, setQuestionGateEnabled] = useState(() =>
+    localStorage.getItem('costudy:questionGateEnabled') !== 'false'
+  )
   const [sidebarWidth,       setSidebarWidth]        = useState(SIDEBAR_DEFAULT)
   const [viewportWidth,      setViewportWidth]       = useState(() => window.innerWidth)
   const [retryCount,         setRetryCount]          = useState(0)
@@ -180,7 +183,26 @@ export default function ViewerPage() {
     setFocusSuggestedTick(Date.now())
   }
 
+  function toggleQuestionGate() {
+    setQuestionGateEnabled((prev) => {
+      const next = !prev
+      localStorage.setItem('costudy:questionGateEnabled', String(next))
+      showToast(next
+        ? '추천 질문 제한을 켰습니다. 페이지를 넘기기 전 직접 답해보는 흐름이 유지됩니다.'
+        : '추천 질문 제한을 껐습니다. 추천 질문은 남아 있지만 페이지 이동은 자유롭게 가능합니다.')
+      return next
+    })
+  }
+
   function requestPageChange(page) {
+    if (page < currentPage) {
+      setCurrentPage(page)
+      return true
+    }
+    if (!questionGateEnabled) {
+      setCurrentPage(page)
+      return true
+    }
     const currentUnit = getUnitForPage(Math.max(0, currentPage - 1))
     const targetUnit = getUnitForPage(Math.max(0, page - 1))
     const pending = currentUnit?.focusQuestions?.length ? unresolvedQuestions(currentUnit) : []
@@ -236,6 +258,7 @@ export default function ViewerPage() {
       <TopToolbar
         onHome={() => navigate('/')}
         onPageLabelClick={() => setThumbnailOpen((v) => !v)}
+        onPageChange={requestPageChange}
       />
       <div style={styles.body}>
         {/* 썸네일 패널 — TopToolbar 바로 아래 absolute overlay */}
@@ -263,6 +286,8 @@ export default function ViewerPage() {
           isMobile={isMobile}
           onSidebarToggle={() => setSidebarOpen((v) => !v)}
           onShowSuggestedQuestions={showSuggestedQuestions}
+          questionGateEnabled={questionGateEnabled}
+          onToggleQuestionGate={toggleQuestionGate}
         />
         {sidebarOpen && (
           <>
@@ -306,6 +331,8 @@ export default function ViewerPage() {
                 onPendingChatPromptConsumed={() => setPendingChatPrompt(null)}
                 onPageJump={requestPageChange}
                 focusSuggestedTick={focusSuggestedTick}
+                questionGateEnabled={questionGateEnabled}
+                onToggleQuestionGate={toggleQuestionGate}
                 quizSeed={quizSeed}
                 activeTab={activeTab}
                 onTabChange={handleTabChange}
