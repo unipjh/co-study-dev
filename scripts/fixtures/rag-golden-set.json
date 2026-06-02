@@ -1,0 +1,141 @@
+{
+  "name": "co-study-rag-baseline-v1",
+  "topK": 3,
+  "scoreFloor": 0.18,
+  "chunks": [
+    {
+      "pageIndex": 0,
+      "text": "Neural networks are models made of layers, weights, and activation functions. They learn patterns from data and produce predictions."
+    },
+    {
+      "pageIndex": 1,
+      "text": "A feedforward neural network passes input values forward through hidden layers to create an output. It does not use cycles."
+    },
+    {
+      "pageIndex": 2,
+      "text": "Backpropagation computes gradients of the loss function and updates weights so that the model prediction becomes closer to the target."
+    },
+    {
+      "pageIndex": 3,
+      "text": "Overfitting happens when a model memorizes training data and performs poorly on unseen validation or test data."
+    },
+    {
+      "pageIndex": 4,
+      "text": "Regularization methods such as dropout and weight decay reduce overfitting by limiting model complexity."
+    },
+    {
+      "pageIndex": 5,
+      "text": "Convolutional neural networks use filters to detect local visual patterns such as edges, textures, and shapes in images."
+    },
+    {
+      "pageIndex": 6,
+      "text": "Recurrent neural networks process sequential data by carrying hidden state across time steps."
+    },
+    {
+      "pageIndex": 7,
+      "text": "Attention mechanisms allow a model to focus on the most relevant tokens when producing a representation or prediction."
+    }
+  ],
+  "cases": [
+    {
+      "id": "semantic-feedforward",
+      "type": "semantic",
+      "question": "How does a feedforward neural network produce an output?",
+      "expectedPages": [2],
+      "currentPage": 5
+    },
+    {
+      "id": "semantic-backpropagation",
+      "type": "semantic",
+      "question": "Why does backpropagation update the weights?",
+      "expectedPages": [3],
+      "currentPage": 1
+    },
+    {
+      "id": "semantic-overfitting",
+      "type": "semantic",
+      "question": "What problem happens when a model memorizes training data?",
+      "expectedPages": [4],
+      "currentPage": 2
+    },
+    {
+      "id": "semantic-regularization",
+      "type": "semantic",
+      "question": "Which methods reduce overfitting by limiting model complexity?",
+      "expectedPages": [5],
+      "currentPage": 4
+    },
+    {
+      "id": "semantic-cnn",
+      "type": "semantic",
+      "question": "What do convolutional filters detect in images?",
+      "expectedPages": [6],
+      "currentPage": 3
+    },
+    {
+      "id": "semantic-rnn",
+      "type": "semantic",
+      "question": "How do recurrent neural networks process sequential data?",
+      "expectedPages": [7],
+      "currentPage": 8
+    },
+    {
+      "id": "semantic-attention",
+      "type": "semantic",
+      "question": "What does attention help a model focus on?",
+      "expectedPages": [8],
+      "currentPage": 6
+    },
+    {
+      "id": "deictic-current-page",
+      "type": "deictic",
+      "question": "Explain this page in simple terms.",
+      "expectedPages": [3],
+      "currentPage": 3
+    },
+    {
+      "id": "selection-anchor",
+      "type": "selection",
+      "question": "Explain the selected sentence and why it matters.",
+      "expectedPages": [5],
+      "currentPage": 1,
+      "selectedContexts": [
+        {
+          "pageIndex": 4,
+          "type": "text",
+          "text": "dropout and weight decay reduce overfitting",
+          "content": "review this"
+        }
+      ]
+    },
+    {
+      "id": "region-anchor",
+      "type": "selection",
+      "question": "What does this diagram region describe?",
+      "expectedPages": [6],
+      "currentPage": 1,
+      "selectedContexts": [
+        {
+          "pageIndex": 5,
+          "type": "region",
+          "content": "visual pattern filters",
+          "imageData": "fixture-image"
+        }
+      ]
+    },
+    {
+      "id": "no-evidence-literature",
+      "type": "no_evidence",
+      "question": "Who wrote Hamlet?",
+      "expectedPages": [],
+      "currentPage": 2
+    },
+    {
+      "id": "no-evidence-history",
+      "type": "no_evidence",
+      "question": "What caused the fall of the Roman Empire?",
+      "expectedPages": [],
+      "currentPage": 4
+    }
+  ]
+}

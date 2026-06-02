@@ -23,8 +23,8 @@ export default function SelectionActionPopup({
 
   if (!viewportRect) return null
 
-  const estimatedWidth = isRegion ? 210 : 380
-  const top = Math.max(12, viewportRect.top - 48)
+  const estimatedWidth = isRegion ? 250 : 360
+  const top = Math.max(12, viewportRect.top - 56)
   const left = Math.min(
     window.innerWidth - estimatedWidth - 12,
     Math.max(12, viewportRect.left + viewportRect.width / 2 - estimatedWidth / 2),
@@ -43,11 +43,11 @@ export default function SelectionActionPopup({
         </button>
       )}
       <button style={styles.btn} onClick={onSendToChat}>
-        Chat 보내기
+        채팅으로 보내기
       </button>
       {!isRegion && (
         <button style={styles.btn} onClick={onAITutor}>
-          즉시질문
+          AI 즉시 설명
         </button>
       )}
       <button style={styles.cancelBtn} onClick={onCancel}>
@@ -73,32 +73,33 @@ const styles = {
     zIndex: 1000,
     display: 'flex',
     alignItems: 'center',
-    gap: 6,
-    padding: 6,
+    gap: 8,
+    padding: '8px 10px',
     borderRadius: 8,
-    background: '#1f2937',
-    boxShadow: '0 8px 24px rgba(0,0,0,0.24)',
+    background: '#ffffff',
+    border: '1px solid #d8d8ea',
+    boxShadow: '0 12px 28px rgba(7,7,97,0.16)',
     whiteSpace: 'nowrap',
     maxWidth: 'calc(100vw - 24px)',
     overflowX: 'auto',
   },
   btn: {
-    border: 'none',
+    border: '1px solid #d9d9ef',
     borderRadius: 6,
-    background: 'rgba(255,255,255,0.12)',
-    color: '#fff',
-    padding: '6px 9px',
+    background: '#f1f1fb',
+    color: '#070761',
+    padding: '8px 12px',
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
     cursor: 'pointer',
     flexShrink: 0,
   },
   primaryBtn: {
     border: 'none',
     borderRadius: 6,
-    background: '#fff',
-    color: '#111827',
-    padding: '6px 10px',
+    background: '#070761',
+    color: '#fff',
+    padding: '8px 14px',
     fontSize: 12,
     fontWeight: 800,
     cursor: 'pointer',
@@ -108,8 +109,8 @@ const styles = {
     border: 'none',
     borderRadius: 6,
     background: 'transparent',
-    color: 'rgba(255,255,255,0.72)',
-    padding: '6px 8px',
+    color: '#777790',
+    padding: '8px 8px',
     fontSize: 12,
     fontWeight: 700,
     cursor: 'pointer',

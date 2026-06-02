@@ -35,13 +35,14 @@ export default function useChat(docId) {
 
   const messages = getMessages(docId)
 
-  async function addMessage(role, content, contextText = null) {
+  async function addMessage(role, content, contextText = null, metadata = {}) {
     if (!docId || !uid) return null
     const msg = {
       id: generateId('msg'),
       role,
       content,
       contextText,
+      ...metadata,
       createdAt: new Date().toISOString(),
     }
     await setDoc(doc(msgsCol(uid, docId), msg.id), msg)

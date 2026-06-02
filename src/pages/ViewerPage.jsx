@@ -11,11 +11,27 @@ import PageThumbnailPanel from '../components/Canvas/PageThumbnailPanel'
 import SidePanel from '../components/Sidebar/SidePanel'
 import useAnnotation from '../hooks/useAnnotation'
 import useLearningUnits from '../hooks/useLearningUnits'
-import useLearningQuestionAnswers from '../hooks/useLearningQuestionAnswers'
+import useLearningQuestionAnswers, { getGateQuestions } from '../hooks/useLearningQuestionAnswers'
 
-const SIDEBAR_MIN = 180
-const SIDEBAR_MAX = 600
-const SIDEBAR_DEFAULT = 300
+const SIDEBAR_MIN_RATIO = 0.2
+const SIDEBAR_MAX_RATIO = 0.5
+const SIDEBAR_DEFAULT_RATIO = 0.4
+const MOBILE_SIDEBAR_RATIO = 0.85
+
+function clampSidebarRatio(ratio) {
+  return Math.min(SIDEBAR_MAX_RATIO, Math.max(SIDEBAR_MIN_RATIO, ratio))
+}
+
+function getSidebarWidth(viewportWidth, ratio) {
+  return Math.round(viewportWidth * clampSidebarRatio(ratio))
+}
+
+function clampSidebarWidth(width, viewportWidth) {
+  return Math.round(Math.min(
+    viewportWidth * SIDEBAR_MAX_RATIO,
+    Math.max(viewportWidth * SIDEBAR_MIN_RATIO, width)
+  ))
+}
 
 export default function ViewerPage() {
   const { docId }    = useParams()
@@ -31,14 +47,14 @@ export default function ViewerPage() {
   const [quizSeed,           setQuizSeed]            = useState(null)
   const [pendingChatPrompt,  setPendingChatPrompt]   = useState(null)
   const [focusSuggestedTick, setFocusSuggestedTick]   = useState(0)
+  const [questionPromptRequest, setQuestionPromptRequest] = useState(null)
   const [questionGateEnabled, setQuestionGateEnabled] = useState(() =>
     localStorage.getItem('costudy:questionGateEnabled') !== 'false'
   )
-  const [sidebarWidth,       setSidebarWidth]        = useState(SIDEBAR_DEFAULT)
   const [viewportWidth,      setViewportWidth]       = useState(() => window.innerWidth)
+  const [sidebarRatio,       setSidebarRatio]        = useState(SIDEBAR_DEFAULT_RATIO)
   const [retryCount,         setRetryCount]          = useState(0)
   const [toast,              setToast]               = useState(null)
-  const prevSidebarWidthRef = useRef(SIDEBAR_DEFAULT)
   const toastTimerRef = useRef(null)
 
   const {
@@ -51,6 +67,9 @@ export default function ViewerPage() {
   const { getUnitForPage } = useLearningUnits(docId)
   const { unresolvedQuestions } = useLearningQuestionAnswers(docId)
   const isMobile = viewportWidth < 700
+  const sidebarWidth = isMobile
+    ? Math.round(viewportWidth * MOBILE_SIDEBAR_RATIO)
+    : getSidebarWidth(viewportWidth, sidebarRatio)
 
   // [B3] 주석이 삭제되면 stale contextAnnotations 자동 정리 (동일 ref 반환으로 루프 방지)
   useEffect(() => {
@@ -61,23 +80,10 @@ export default function ViewerPage() {
     })
   }, [annotations])
 
-  // 마인드맵 탭 전환 시 사이드바 5:5 자동 조정
-  useEffect(() => {
-    if (isMobile) return
-    if (activeTab === 'mindmap') {
-      prevSidebarWidthRef.current = sidebarWidth
-      setSidebarWidth(Math.min(SIDEBAR_MAX, Math.floor(window.innerWidth / 2)))
-    } else {
-      setSidebarWidth(prevSidebarWidthRef.current)
-    }
-  // sidebarWidth는 의존성에서 제외 (전환 시점의 값만 스냅샷)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, isMobile])
-
   // ── 사이드바 너비 드래그 리사이즈 ─────────────────────────────
   const isDraggingRef = useRef(false)
   const dragStartXRef = useRef(0)
-  const dragStartWidthRef = useRef(SIDEBAR_DEFAULT)
+  const dragStartWidthRef = useRef(getSidebarWidth(window.innerWidth, SIDEBAR_DEFAULT_RATIO))
 
   const handleResizerMouseDown = useCallback((e) => {
     isDraggingRef.current = true
@@ -100,8 +106,8 @@ export default function ViewerPage() {
     function onMouseMove(e) {
       if (!isDraggingRef.current) return
       const delta = dragStartXRef.current - e.clientX
-      const newWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, dragStartWidthRef.current + delta))
-      setSidebarWidth(newWidth)
+      const newWidth = clampSidebarWidth(dragStartWidthRef.current + delta, viewportWidth)
+      setSidebarRatio(clampSidebarRatio(newWidth / viewportWidth))
     }
     function onMouseUp() {
       if (!isDraggingRef.current) return
@@ -112,8 +118,8 @@ export default function ViewerPage() {
     function onTouchMove(e) {
       if (!isDraggingRef.current) return
       const delta = dragStartXRef.current - e.touches[0].clientX
-      const newWidth = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, dragStartWidthRef.current + delta))
-      setSidebarWidth(newWidth)
+      const newWidth = clampSidebarWidth(dragStartWidthRef.current + delta, viewportWidth)
+      setSidebarRatio(clampSidebarRatio(newWidth / viewportWidth))
     }
     function onTouchEnd() {
       if (!isDraggingRef.current) return
@@ -130,7 +136,7 @@ export default function ViewerPage() {
       document.removeEventListener('touchmove', onTouchMove)
       document.removeEventListener('touchend',  onTouchEnd)
     }
-  }, [])
+  }, [viewportWidth])
 
   // viewport 너비 추적 (모바일 레이아웃 전환용)
   useEffect(() => {
@@ -190,6 +196,7 @@ export default function ViewerPage() {
       showToast(next
         ? '추천 질문 제한을 켰습니다. 페이지를 넘기기 전 직접 답해보는 흐름이 유지됩니다.'
         : '추천 질문 제한을 껐습니다. 추천 질문은 남아 있지만 페이지 이동은 자유롭게 가능합니다.')
+      if (!next) setQuestionPromptRequest(null)
       return next
     })
   }
@@ -205,11 +212,11 @@ export default function ViewerPage() {
     }
     const currentUnit = getUnitForPage(Math.max(0, currentPage - 1))
     const targetUnit = getUnitForPage(Math.max(0, page - 1))
-    const pending = currentUnit?.focusQuestions?.length ? unresolvedQuestions(currentUnit) : []
+    const pending = getGateQuestions(currentUnit, Math.max(0, currentPage - 1)).length
+      ? unresolvedQuestions(currentUnit, Math.max(0, currentPage - 1))
+      : []
     if (pending.length > 0 && currentUnit?.id && targetUnit?.id !== currentUnit.id) {
-      setActiveTab('chat')
-      setSidebarOpen(true)
-      setFocusSuggestedTick(Date.now())
+      setQuestionPromptRequest({ id: Date.now(), page, reason: 'external' })
       showToast('추천 질문에 답변하거나 Skip을 누른 뒤 이동할 수 있습니다.')
       return false
     }
@@ -259,6 +266,8 @@ export default function ViewerPage() {
         onHome={() => navigate('/')}
         onPageLabelClick={() => setThumbnailOpen((v) => !v)}
         onPageChange={requestPageChange}
+        questionGateEnabled={questionGateEnabled}
+        onToggleQuestionGate={toggleQuestionGate}
       />
       <div style={styles.body}>
         {/* 썸네일 패널 — TopToolbar 바로 아래 absolute overlay */}
@@ -267,6 +276,7 @@ export default function ViewerPage() {
             pdfBlob={pdfBlob}
             numPages={numPages}
             currentPage={currentPage}
+            rightInset={sidebarOpen && !isMobile ? sidebarWidth : 0}
             onPageSelect={(page) => {
               if (requestPageChange(page)) {
                 useDocumentStore.getState().setViewMode('page')
@@ -286,6 +296,10 @@ export default function ViewerPage() {
           isMobile={isMobile}
           onSidebarToggle={() => setSidebarOpen((v) => !v)}
           onShowSuggestedQuestions={showSuggestedQuestions}
+          questionPromptRequest={questionPromptRequest}
+          onQuestionPromptHandled={(id) => {
+            setQuestionPromptRequest((current) => current?.id === id ? null : current)
+          }}
           questionGateEnabled={questionGateEnabled}
           onToggleQuestionGate={toggleQuestionGate}
         />
@@ -367,46 +381,46 @@ export default function ViewerPage() {
 
 const styles = {
   root: { height: '100%', display: 'flex', flexDirection: 'column' },
-  body: { flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' },
+  body: { flex: 1, display: 'flex', overflow: 'hidden', position: 'relative', background: '#f1f1f7' },
   resizer: {
-    width: 5,
+    width: 8,
     cursor: 'col-resize',
-    background: 'rgba(255,255,255,0.01)',
+    background: 'rgba(7,7,97,0.01)',
     position: 'absolute',
     top: 0,
     bottom: 0,
     zIndex: 25,
     transition: 'background 0.15s',
-    '&:hover': { background: 'rgba(99,102,241,0.25)' },
+    '&:hover': { background: 'rgba(7,7,97,0.12)' },
   },
   sidebarWrapper: {
     position: 'absolute',
     right: 0,
     top: 0,
     bottom: 0,
-    zIndex: 20,
+    zIndex: 80,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
-    boxShadow: '-4px 0 24px rgba(0,0,0,0.12)',
+    boxShadow: '-12px 0 34px rgba(7,7,97,0.1)',
   },
   sidebarWrapperMobile: {
     position: 'absolute',
     right: 0, top: 0, bottom: 0,
-    zIndex: 20,
+    zIndex: 80,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
-    boxShadow: '-4px 0 24px rgba(0,0,0,0.18)',
+    boxShadow: '-12px 0 34px rgba(7,7,97,0.16)',
   },
   panelCloseBtn: {
     position: 'absolute',
     top: 8,
     right: 10,
     zIndex: 2,
-    border: '1px solid #e0e0e0',
+    border: '1px solid rgba(7,7,97,0.12)',
     background: 'rgba(255,255,255,0.92)',
-    color: '#333',
+    color: '#070761',
     width: 28,
     height: 28,
     borderRadius: 7,
@@ -414,14 +428,14 @@ const styles = {
     fontSize: 18,
     fontWeight: 800,
     cursor: 'pointer',
-    boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+    boxShadow: '0 8px 18px rgba(7,7,97,0.12)',
     lineHeight: '26px',
   },
   backdrop: {
     position: 'absolute',
     inset: 0,
     background: 'rgba(0,0,0,0.35)',
-    zIndex: 19,
+    zIndex: 79,
   },
   error: {
     height: '100%', display: 'flex', flexDirection: 'column',
@@ -431,7 +445,7 @@ const styles = {
   errorActions: { display: 'flex', gap: 8 },
   retryBtn: {
     padding: '8px 20px', borderRadius: 8,
-    background: '#6366f1', color: '#fff', fontSize: 14, cursor: 'pointer',
+    background: '#070761', color: '#fff', fontSize: 14, cursor: 'pointer',
   },
   backBtn: {
     padding: '8px 20px', borderRadius: 8,

@@ -1,0 +1,70 @@
+import './CoStudyLogo.css'
+
+export function CoStudyMark({ className = '', title = 'Co-Study' }) {
+  return (
+    <svg
+      className={`costudy-mark ${className}`}
+      width="67"
+      height="67"
+      viewBox="0 0 67 67"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      role="img"
+      aria-label={title}
+    >
+      <title>{title}</title>
+      <circle cx="33.5" cy="33.5" r="33.5" fill="#41FFA7" fillOpacity="0.5" />
+      <g clipPath="url(#costudy-mark-clip)">
+        <path d="M17.47 39.33C16.4 38.7 15.55 37.84 14.93 36.75C14.31 35.66 14 34.45 14 33.11C14 31.77 14.31 30.58 14.93 29.49C15.55 28.4 16.4 27.55 17.47 26.92C18.54 26.3 19.74 25.99 21.06 25.99H21.13C22.45 25.99 23.65 26.3 24.72 26.92C25.79 27.54 26.64 28.4 27.25 29.49C27.86 30.58 28.17 31.78 28.17 33.11C28.17 34.44 27.86 35.66 27.25 36.75C26.64 37.84 25.79 38.7 24.72 39.33C23.65 39.96 22.45 40.27 21.13 40.27H21.06C19.74 40.27 18.54 39.96 17.47 39.33ZM18.25 36.13C19 36.9 19.95 37.29 21.11 37.29H21.13C21.88 37.29 22.55 37.12 23.13 36.77C23.72 36.42 24.18 35.93 24.53 35.3C24.87 34.67 25.04 33.94 25.04 33.12C25.04 32.3 24.87 31.59 24.53 30.96C24.19 30.33 23.72 29.85 23.13 29.5C22.54 29.16 21.87 28.99 21.13 28.99H21.11C19.95 28.99 18.99 29.37 18.25 30.14C17.5 30.9 17.13 31.9 17.13 33.12C17.13 34.34 17.5 35.37 18.25 36.14V36.13Z" fill="#070761" />
+        <path d="M42.55 39.33C41.48 38.7 40.63 37.84 40.01 36.75C39.39 35.66 39.08 34.45 39.08 33.11C39.08 31.77 39.39 30.58 40.01 29.49C40.63 28.4 41.48 27.55 42.55 26.92C43.62 26.3 44.82 25.99 46.14 25.99H46.21C47.53 25.99 48.73 26.3 49.8 26.92C50.87 27.54 51.72 28.4 52.33 29.49C52.94 30.58 53.25 31.78 53.25 33.11C53.25 34.44 52.94 35.66 52.33 36.75C51.72 37.84 50.87 38.7 49.8 39.33C48.73 39.96 47.53 40.27 46.21 40.27H46.14C44.82 40.27 43.62 39.96 42.55 39.33ZM43.33 36.13C44.08 36.9 45.03 37.29 46.19 37.29H46.21C46.96 37.29 47.63 37.12 48.21 36.77C48.8 36.42 49.26 35.93 49.61 35.3C49.95 34.67 50.12 33.94 50.12 33.12C50.12 32.3 49.95 31.59 49.61 30.96C49.27 30.33 48.8 29.85 48.21 29.5C47.62 29.16 46.95 28.99 46.21 28.99H46.19C45.03 28.99 44.07 29.37 43.33 30.14C42.58 30.9 42.21 31.9 42.21 33.12C42.21 34.34 42.58 35.37 43.33 36.14V36.13Z" fill="#070761" />
+        <path d="M30.7715 30.7747C33.4384 29.9741 36.7534 29.8665 39.9873 32.2502H27.4189C28.3123 31.7303 29.4615 31.1679 30.7715 30.7747Z" stroke="#070761" strokeWidth="1.5" />
+      </g>
+      <defs>
+        <clipPath id="costudy-mark-clip">
+          <rect width="39.25" height="14.27" fill="white" transform="translate(14 26)" />
+        </clipPath>
+      </defs>
+    </svg>
+  )
+}
+
+function Wordmark({ title }) {
+  return (
+    <>
+      <title>{title}</title>
+      <g className="costudy-logo-ink" aria-hidden="true">
+        <text className="costudy-logo-co-text" x="0" y="70">{'C\u00f6'}</text>
+        <text className="costudy-logo-study" x="15" y="153">- Study</text>
+      </g>
+    </>
+  )
+}
+
+export default function CoStudyLogo({ className = '', badge = false, title = 'Co-Study' }) {
+  if (badge) {
+    return (
+      <svg
+        className={`costudy-logo costudy-logo-badge ${className}`}
+        viewBox="0 0 310 310"
+        role="img"
+        aria-label={title}
+      >
+        <title>{title}</title>
+        <g transform="scale(4.6268657)">
+          <CoStudyMark title={title} />
+        </g>
+      </svg>
+    )
+  }
+
+  return (
+    <svg
+      className={`costudy-logo costudy-logo-wordmark ${className}`}
+      viewBox="0 0 310 180"
+      role="img"
+      aria-label={title}
+    >
+      <Wordmark title={title} />
+    </svg>
+  )
+}

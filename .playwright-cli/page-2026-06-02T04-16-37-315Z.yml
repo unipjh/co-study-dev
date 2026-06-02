@@ -1,0 +1,28 @@
+- main [ref=e19]:
+  - complementary [ref=e20]:
+    - generic [ref=e21]:
+      - img "Co-Study" [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e24]: Cö
+          - generic [ref=e25]: "- Study"
+      - button "사이드바 접기" [ref=e26] [cursor=pointer]
+    - generic [ref=e28]:
+      - img "Co-Study profile" [ref=e29]
+      - generic [ref=e35]:
+        - strong [ref=e36]: 코워커
+        - generic [ref=e37]: playwright-test@example.com
+      - button "로그아웃" [ref=e38] [cursor=pointer]:
+        - img [ref=e39]
+  - generic [ref=e41]:
+    - generic [ref=e42]:
+      - heading "내 자료" [level=1] [ref=e43]
+      - generic [ref=e44] [cursor=pointer]: + 자료 추가
+    - generic [ref=e46]:
+      - img [ref=e47]
+      - textbox "자료 검색" [ref=e49]:
+        - /placeholder: 검색하기
+    - combobox "정렬" [ref=e51]:
+      - option "최신순" [selected]
+      - option "이름순"
+      - option "페이지순"
+    - generic [ref=e52]: 자료를 불러오는 중입니다.

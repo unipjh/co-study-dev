@@ -1,0 +1,93 @@
+- generic [ref=e114]:
+  - generic [ref=e115]:
+    - generic [ref=e116]:
+      - button "문서 목록으로 돌아가기" [ref=e117] [cursor=pointer]: ‹
+      - generic "ex_documents.pdf" [ref=e118]
+    - generic "문서 보기 도구" [ref=e119]:
+      - generic [ref=e120]:
+        - button "축소" [ref=e121] [cursor=pointer]: "-"
+        - generic [ref=e122]: 100%
+        - button "확대" [ref=e123] [cursor=pointer]: +
+      - generic [ref=e125]:
+        - button "이전 페이지" [disabled] [ref=e126] [cursor=pointer]: ‹
+        - button "페이지 목록 열기" [ref=e127] [cursor=pointer]:
+          - text: 1/32
+          - generic [ref=e128]: ▾
+        - button "다음 페이지" [ref=e129] [cursor=pointer]: ›
+      - generic "보기 방식" [ref=e130]:
+        - button "페이지" [ref=e131] [cursor=pointer]
+        - button "스크롤" [ref=e132] [cursor=pointer]
+  - generic [ref=e133]:
+    - generic [ref=e134]:
+      - button "우선 이번 페이지 핵심인공 신경망의 기본 구조와 작동 원리를 이해하고 딥러닝의 기초 용어를 익힌다. ∨" [ref=e136] [cursor=pointer]:
+        - generic [ref=e137]: 우선
+        - generic [ref=e138]:
+          - strong [ref=e139]: 이번 페이지 핵심
+          - text: 인공 신경망의 기본 구조와 작동 원리를 이해하고 딥러닝의 기초 용어를 익힌다.
+        - generic [ref=e140]: ∨
+      - generic [ref=e144]:
+        - generic [ref=e145]:
+          - generic: "2."
+          - generic: 순방향
+          - generic: 신경망
+          - generic: 세종대학교
+          - generic: 인공지능데이터사이언스학과
+          - generic: 김정현
+          - generic: 딥러닝
+          - generic: 담당교수
+        - generic [ref=e146]:
+          - generic:
+            - generic: P hysical I ntelligence Lab.
+          - generic:
+            - generic: "1"
+      - button "‹" [disabled] [ref=e147] [cursor=pointer]
+      - button "›" [ref=e148] [cursor=pointer]
+      - dialog "잠깐, 이해하고 있나요?" [ref=e150]:
+        - generic [ref=e151]:
+          - heading "🖐🏻 잠깐, 이해하고 있나요?" [level=2] [ref=e152]
+          - paragraph [ref=e153]: 지금까지 읽은 내용을 바탕으로 간단한 O/X 퀴즈를 풀어보세요.
+          - button "점검 팝업 닫기" [ref=e154] [cursor=pointer]: ×
+        - paragraph [ref=e156]: 퍼셉트론은 오늘날 인공 신경망의 기본 구조를 제공하며, 입력층, 출력층, 가중치로 구성된다.
+        - generic [ref=e157]:
+          - button "O" [ref=e158] [cursor=pointer]
+          - button "X" [ref=e159] [cursor=pointer]
+        - generic [ref=e160]:
+          - button "넘어가기" [ref=e161] [cursor=pointer]
+          - button "더 쉽게 설명" [ref=e162] [cursor=pointer]
+          - button "제한 모드 OFF" [ref=e163] [cursor=pointer]
+      - generic [ref=e164]:
+        - button "T" [ref=e165] [cursor=pointer]
+        - button "⌗" [ref=e166] [cursor=pointer]
+        - button "☝" [ref=e167] [cursor=pointer]
+        - button "전체" [ref=e168] [cursor=pointer]
+      - generic [ref=e169]: 색인 완료
+      - generic [ref=e170]:
+        - button "💬 채팅" [ref=e171] [cursor=pointer]
+        - button "📝 메모" [ref=e172] [cursor=pointer]
+        - button "🧠 마인드맵" [ref=e173] [cursor=pointer]
+        - button "🧩 퀴즈" [ref=e174] [cursor=pointer]
+    - generic "드래그하여 너비 조정" [ref=e175]
+    - generic [ref=e176]:
+      - button "사이드바 닫기" [ref=e177] [cursor=pointer]: ×
+      - generic [ref=e179]:
+        - generic [ref=e181]:
+          - button "전체" [ref=e182] [cursor=pointer]
+          - button "단순" [ref=e183] [cursor=pointer]
+          - button "꼬리" [ref=e184] [cursor=pointer]
+          - button "맥락" [ref=e185] [cursor=pointer]
+        - generic [ref=e186]:
+          - generic [ref=e188]:
+            - blockquote [ref=e189]: 1. "– 오즈(odds)" (p.11)
+            - paragraph [ref=e191]: 이 내용을 쉽게 설명해줘
+          - generic [ref=e194]:
+            - generic [ref=e195]:
+              - text: 네, '오즈(odds)'는 아주 쉽게 말하면,
+              - strong [ref=e196]: 어떤 사건이 일어날 확률을 그 사건이 일어나지 않을 확률로 나눈 비율
+              - text: 이에요
+              - button "p.11" [ref=e197] [cursor=pointer]
+              - text: .
+            - generic [ref=e198]: 예를 들어, 동전을 던졌을 때 앞면이 나올 확률이 50%라고 하면, 뒷면(앞면이 안 나오는 경우)이 나올 확률도 50%겠죠? 이때 오즈는 50% / 50% = 1이 됩니다.
+            - generic [ref=e199]: 즉, 사건이 일어날 가능성이 일어나지 않을 가능성보다 얼마나 더 큰지를 숫자로 나타낸 것이라고 생각하면 돼요.
+        - generic [ref=e200]:
+          - textbox "질문을 입력하세요." [ref=e201]
+          - button "전송" [disabled] [ref=e202] [cursor=pointer]

@@ -1,0 +1,115 @@
+- generic [ref=e70]:
+  - generic [ref=e71]:
+    - generic [ref=e72]:
+      - button "문서 목록으로 돌아가기" [ref=e73] [cursor=pointer]: ‹
+      - generic "ex_documents.pdf" [ref=e123]
+    - generic "문서 보기 도구" [ref=e75]:
+      - generic [ref=e76]:
+        - button "축소" [ref=e77] [cursor=pointer]: "-"
+        - generic [ref=e78]: 100%
+        - button "확대" [ref=e79] [cursor=pointer]: +
+      - generic [ref=e125]:
+        - button "이전 페이지" [disabled] [ref=e126] [cursor=pointer]: ‹
+        - button "페이지 목록 열기" [active] [ref=e127] [cursor=pointer]:
+          - text: 1/32
+          - generic [ref=e128]: ▾
+        - button "다음 페이지" [ref=e129] [cursor=pointer]: ›
+      - generic "보기 방식" [ref=e80]:
+        - button "페이지" [ref=e81] [cursor=pointer]
+        - button "스크롤" [ref=e82] [cursor=pointer]
+    - button "💡 팝업 질문 받기" [pressed] [ref=e84] [cursor=pointer]:
+      - generic [ref=e85]: 💡 팝업 질문 받기
+  - generic [ref=e88]:
+    - generic [ref=e162]:
+      - paragraph [ref=e167] [cursor=pointer]: "1"
+      - paragraph [ref=e172] [cursor=pointer]: "2"
+      - paragraph [ref=e177] [cursor=pointer]: "3"
+      - paragraph [ref=e182] [cursor=pointer]: "4"
+      - paragraph [ref=e187] [cursor=pointer]: "5"
+      - paragraph [ref=e192] [cursor=pointer]: "6"
+      - paragraph [ref=e197] [cursor=pointer]: "7"
+      - paragraph [ref=e202] [cursor=pointer]: "8"
+      - paragraph [ref=e206] [cursor=pointer]: "9"
+      - paragraph [ref=e210] [cursor=pointer]: "10"
+      - paragraph [ref=e214] [cursor=pointer]: "11"
+      - paragraph [ref=e218] [cursor=pointer]: "12"
+      - paragraph [ref=e222] [cursor=pointer]: "13"
+      - paragraph [ref=e226] [cursor=pointer]: "14"
+      - paragraph [ref=e230] [cursor=pointer]: "15"
+      - paragraph [ref=e234] [cursor=pointer]: "16"
+      - paragraph [ref=e238] [cursor=pointer]: "17"
+      - paragraph [ref=e242] [cursor=pointer]: "18"
+      - paragraph [ref=e246] [cursor=pointer]: "19"
+      - paragraph [ref=e250] [cursor=pointer]: "20"
+      - paragraph [ref=e254] [cursor=pointer]: "21"
+      - paragraph [ref=e258] [cursor=pointer]: "22"
+      - paragraph [ref=e262] [cursor=pointer]: "23"
+      - paragraph [ref=e266] [cursor=pointer]: "24"
+      - paragraph [ref=e270] [cursor=pointer]: "25"
+      - paragraph [ref=e274] [cursor=pointer]: "26"
+      - paragraph [ref=e278] [cursor=pointer]: "27"
+      - paragraph [ref=e282] [cursor=pointer]: "28"
+      - paragraph [ref=e286] [cursor=pointer]: "29"
+      - paragraph [ref=e290] [cursor=pointer]: "30"
+      - paragraph [ref=e294] [cursor=pointer]: "31"
+      - paragraph [ref=e298] [cursor=pointer]: "32"
+    - generic [ref=e89]:
+      - button "우선 이번 페이지 핵심인공신경망의 기본 개념과 딥러닝 용어를 이해하고, 다양한 활성화 함수와 손실 함수의 역할을 파악한다. ∨" [ref=e131] [cursor=pointer]:
+        - generic [ref=e132]: 우선
+        - generic [ref=e133]:
+          - strong [ref=e134]: 이번 페이지 핵심
+          - text: 인공신경망의 기본 개념과 딥러닝 용어를 이해하고, 다양한 활성화 함수와 손실 함수의 역할을 파악한다.
+        - generic [ref=e135]: ∨
+      - generic [ref=e139]:
+        - generic [ref=e140]:
+          - generic: "2."
+          - generic: 순방향
+          - generic: 신경망
+          - generic: 세종대학교
+          - generic: 인공지능데이터사이언스학과
+          - generic: 김정현
+          - generic: 딥러닝
+          - generic: 담당교수
+        - generic [ref=e141]:
+          - generic:
+            - generic: P hysical I ntelligence Lab.
+          - generic:
+            - generic: "1"
+      - button "‹" [disabled] [ref=e142] [cursor=pointer]
+      - button "›" [ref=e143] [cursor=pointer]
+      - generic [ref=e144]:
+        - button "T" [ref=e145] [cursor=pointer]
+        - button "⌗" [ref=e146] [cursor=pointer]
+        - button "☝" [ref=e147] [cursor=pointer]
+        - button "전체" [ref=e148] [cursor=pointer]
+      - generic [ref=e149]: 색인 완료
+      - generic [ref=e150]:
+        - button "💬 채팅" [ref=e151] [cursor=pointer]
+        - button "📝 메모" [ref=e152] [cursor=pointer]
+        - button "🧠 마인드맵" [ref=e153] [cursor=pointer]
+        - button "🧩 퀴즈" [ref=e154] [cursor=pointer]
+    - generic "드래그하여 너비 조정" [ref=e94]
+    - generic [ref=e95]:
+      - button "사이드바 닫기" [ref=e96] [cursor=pointer]: ×
+      - generic [ref=e98]:
+        - generic [ref=e100]:
+          - button "전체" [ref=e101] [cursor=pointer]
+          - button "단순" [ref=e102] [cursor=pointer]
+          - button "꼬리" [ref=e103] [cursor=pointer]
+          - button "맥락" [ref=e104] [cursor=pointer]
+        - generic [ref=e105]:
+          - generic [ref=e107]:
+            - blockquote [ref=e108]: 1. "– 오즈(odds)" (p.11)
+            - paragraph [ref=e110]: 이 내용을 쉽게 설명해줘
+          - generic [ref=e113]:
+            - generic [ref=e299]:
+              - text: 네, '오즈(odds)'는 아주 쉽게 말하면,
+              - strong [ref=e300]: 어떤 사건이 일어날 확률을 그 사건이 일어나지 않을 확률로 나눈 비율
+              - text: 이에요
+              - button "p.11" [ref=e301] [cursor=pointer]
+              - text: .
+            - generic [ref=e302]: 예를 들어, 동전을 던졌을 때 앞면이 나올 확률이 50%라고 하면, 뒷면(앞면이 안 나오는 경우)이 나올 확률도 50%겠죠? 이때 오즈는 50% / 50% = 1이 됩니다.
+            - generic [ref=e303]: 즉, 사건이 일어날 가능성이 일어나지 않을 가능성보다 얼마나 더 큰지를 숫자로 나타낸 것이라고 생각하면 돼요.
+        - generic [ref=e120]:
+          - textbox "질문을 입력하세요." [ref=e121]
+          - button "전송" [disabled] [ref=e122] [cursor=pointer]

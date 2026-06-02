@@ -1,51 +1,66 @@
-import { useState, useRef } from 'react'
+import { useRef, useState } from 'react'
 import { getDisplayColor, getColorLabel } from '../../lib/colorUtils'
 
-/**
- * Memo 탭의 개별 annotation 카드
- *
- * @param {{ annotation, onDelete, onScrollTo, onSendToChat }} props
- */
+function getSourceText(annotation) {
+  if (annotation.imageData) return '[이미지 영역]'
+  if (annotation.text) return annotation.text
+  return annotation.content ? '[영역 선택]' : ''
+}
+
 export default function MemoCard({ annotation, onDelete, onScrollTo, onSendToChat }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const confirmTimerRef = useRef(null)
+
+  const colorBg = getDisplayColor(annotation.color)
+  const colorLabel = getColorLabel(annotation.color)
+  const sourceText = getSourceText(annotation)
 
   function handleDeleteClick() {
     if (confirmDelete) {
       clearTimeout(confirmTimerRef.current)
       onDelete?.(annotation.id)
-    } else {
-      setConfirmDelete(true)
-      confirmTimerRef.current = setTimeout(() => setConfirmDelete(false), 3000)
+      return
     }
+
+    setConfirmDelete(true)
+    confirmTimerRef.current = setTimeout(() => setConfirmDelete(false), 3000)
   }
-  const colorBg    = getDisplayColor(annotation.color)
-  const colorLabel = getColorLabel(annotation.color)
 
   return (
-    <div style={styles.card}>
-      <div style={styles.header}>
-        <span style={{ ...styles.colorDot, background: colorBg }} />
-        <span style={styles.colorLabel}>{colorLabel}</span>
-        <span style={styles.page}>{annotation.pageIndex + 1}p</span>
-        <button
-          style={styles.goBtn}
-          onClick={() => onScrollTo?.(annotation)}
-          title="원문으로 이동"
-        >
-          ↗
-        </button>
-        <button
-          style={confirmDelete ? styles.delBtnConfirm : styles.delBtn}
-          onClick={handleDeleteClick}
-          title={confirmDelete ? '한 번 더 클릭하면 삭제됩니다' : '삭제'}
-        >
-          {confirmDelete ? '삭제?' : '×'}
-        </button>
+    <article style={styles.card}>
+      <div style={styles.topLine}>
+        <div style={styles.labelGroup}>
+          <span style={{ ...styles.colorDot, background: colorBg }} />
+          <span style={styles.colorLabel}>{colorLabel}</span>
+        </div>
+
+        <div style={styles.actions}>
+          <span style={styles.page}>{annotation.pageIndex + 1}p</span>
+          <button
+            type="button"
+            style={styles.iconButton}
+            onClick={() => onScrollTo?.(annotation)}
+            aria-label="원문으로 이동"
+            title="원문으로 이동"
+          >
+            ↗
+          </button>
+          <button
+            type="button"
+            style={confirmDelete ? styles.deleteConfirm : styles.iconButton}
+            onClick={handleDeleteClick}
+            aria-label={confirmDelete ? '삭제 확인' : '메모 삭제'}
+            title={confirmDelete ? '한 번 더 클릭하면 삭제됩니다' : '메모 삭제'}
+          >
+            {confirmDelete ? '삭제?' : '×'}
+          </button>
+        </div>
       </div>
 
-      {annotation.text && (
-        <p style={styles.source}>"{annotation.text}"</p>
+      {sourceText && (
+        <blockquote style={styles.source}>
+          {sourceText}
+        </blockquote>
       )}
 
       {annotation.content ? (
@@ -54,44 +69,133 @@ export default function MemoCard({ annotation, onDelete, onScrollTo, onSendToCha
         <p style={styles.emptyContent}>메모 없음</p>
       )}
 
-      <button style={styles.chatBtn} onClick={() => onSendToChat?.(annotation)}>
+      <button
+        type="button"
+        style={styles.contextButton}
+        onClick={() => onSendToChat?.(annotation)}
+      >
         맥락 추가
       </button>
-    </div>
+    </article>
   )
 }
 
 const styles = {
   card: {
-    padding: '10px 14px',
-    borderBottom: '1px solid #f0f0f0',
-    background: '#fff',
+    minHeight: 180,
+    padding: '14px 17px 14px 28px',
+    borderBottom: '1px solid #eeeeee',
+    background: '#ffffff',
+    position: 'relative',
     display: 'flex',
     flexDirection: 'column',
-    gap: 5,
+    gap: 10,
   },
-  header: { display: 'flex', alignItems: 'center', gap: 6 },
-  colorDot: { width: 9, height: 9, borderRadius: '50%', flexShrink: 0 },
-  colorLabel: { fontSize: 11, color: '#888', flex: 1 },
-  page: { fontSize: 11, color: '#aaa' },
-  goBtn: { fontSize: 12, color: '#888', cursor: 'pointer', padding: '0 2px' },
-  delBtn: { fontSize: 14, color: '#ccc', cursor: 'pointer', padding: '0 2px', lineHeight: 1 },
-  delBtnConfirm: {
-    fontSize: 10, color: '#ef4444', cursor: 'pointer', fontWeight: 700,
-    padding: '2px 5px', lineHeight: 1,
-    background: '#fff0f0', border: '1px solid #fca5a5', borderRadius: 4,
+  topLine: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+    minHeight: 20,
+  },
+  labelGroup: {
+    minWidth: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+  },
+  colorDot: {
+    width: 15,
+    height: 15,
+    borderRadius: '50%',
+    flexShrink: 0,
+    boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.04)',
+  },
+  colorLabel: {
+    minWidth: 0,
+    color: '#6e6e6e',
+    fontSize: 12.5,
+    lineHeight: '20px',
+    fontWeight: 500,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  actions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 18,
+    flexShrink: 0,
+  },
+  page: {
+    color: '#6e6e6e',
+    fontSize: 12,
+    lineHeight: '20px',
+    fontWeight: 500,
+  },
+  iconButton: {
+    width: 15,
+    height: 20,
+    padding: 0,
+    color: '#6e6e6e',
+    fontSize: 18,
+    lineHeight: '18px',
+    fontWeight: 400,
+    textAlign: 'center',
+  },
+  deleteConfirm: {
+    minWidth: 38,
+    height: 22,
+    padding: '2px 6px',
+    borderRadius: 5,
+    background: '#fff0f0',
+    border: '1px solid #fca5a5',
+    color: '#ef4444',
+    fontSize: 11,
+    fontWeight: 800,
   },
   source: {
-    fontSize: 11, color: '#888', lineHeight: 1.4, wordBreak: 'break-word',
-    borderLeft: '2px solid #e8e8e8', paddingLeft: 8, fontStyle: 'italic',
-    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
+    marginTop: 2,
+    marginLeft: 1,
+    paddingLeft: 17,
+    minHeight: 54,
+    borderLeft: '2px solid #cfcfcf',
+    color: 'rgba(0,0,0,0.25)',
+    fontSize: 12,
+    lineHeight: '18px',
+    fontWeight: 400,
+    wordBreak: 'break-word',
+    display: '-webkit-box',
+    WebkitLineClamp: 3,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
   },
-  content: { fontSize: 13, color: '#333', lineHeight: 1.5, wordBreak: 'break-word' },
-  emptyContent: { fontSize: 12, color: '#ccc', fontStyle: 'italic' },
-  chatBtn: {
-    alignSelf: 'flex-start',
-    fontSize: 11, color: '#6366f1', cursor: 'pointer',
-    padding: '3px 8px', borderRadius: 4,
-    background: '#f0f0ff', border: '1px solid #e0e0ff',
+  content: {
+    color: '#000000',
+    fontSize: 15,
+    lineHeight: '20px',
+    fontWeight: 500,
+    wordBreak: 'break-word',
+    paddingRight: 98,
+  },
+  emptyContent: {
+    color: '#000000',
+    fontSize: 15,
+    lineHeight: '20px',
+    fontWeight: 500,
+    opacity: 0.5,
+    paddingRight: 98,
+  },
+  contextButton: {
+    alignSelf: 'flex-end',
+    marginTop: 'auto',
+    width: 80,
+    height: 25,
+    borderRadius: 5,
+    background: '#eeeef8',
+    color: '#070761',
+    fontSize: 12,
+    lineHeight: '20px',
+    fontWeight: 700,
   },
 }

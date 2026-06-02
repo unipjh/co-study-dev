@@ -1,0 +1,66 @@
+- generic [ref=e5]:
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - button "문서 목록으로 돌아가기" [ref=e8] [cursor=pointer]: ‹
+      - generic "ex_documents.pdf" [ref=e9]
+    - generic "문서 보기 도구" [ref=e10]:
+      - generic [ref=e11]:
+        - button "축소" [ref=e12] [cursor=pointer]: "-"
+        - generic [ref=e13]: 100%
+        - button "확대" [ref=e14] [cursor=pointer]: +
+      - generic [ref=e16]:
+        - button "이전 페이지" [disabled] [ref=e17] [cursor=pointer]: ‹
+        - button "페이지 목록 열기" [ref=e18] [cursor=pointer]:
+          - text: 1/32
+          - generic [ref=e19]: ▾
+        - button "다음 페이지" [ref=e20] [cursor=pointer]: ›
+      - generic "보기 방식" [ref=e21]:
+        - button "페이지" [ref=e22] [cursor=pointer]
+        - button "스크롤" [ref=e23] [cursor=pointer]
+    - button "💡 팝업 질문 받기" [ref=e25] [cursor=pointer]:
+      - generic [ref=e26]: 💡 팝업 질문 받기
+  - generic [ref=e29]:
+    - generic [ref=e30]:
+      - button "우선 이번 페이지 핵심인공신경망의 기본 원리와 딥러닝 용어를 이해한다. ∨" [ref=e32] [cursor=pointer]:
+        - generic [ref=e33]: 우선
+        - generic [ref=e34]:
+          - strong [ref=e35]: 이번 페이지 핵심
+          - text: 인공신경망의 기본 원리와 딥러닝 용어를 이해한다.
+        - generic [ref=e36]: ∨
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - generic: "2."
+          - generic: 순방향
+          - generic: 신경망
+          - generic: 세종대학교
+          - generic: 인공지능데이터사이언스학과
+          - generic: 김정현
+          - generic: 딥러닝
+          - generic: 담당교수
+        - generic [ref=e42]:
+          - generic:
+            - generic: P hysical I ntelligence Lab.
+          - generic:
+            - generic: "1"
+      - button "‹" [disabled] [ref=e43] [cursor=pointer]
+      - button "›" [ref=e44] [cursor=pointer]
+      - generic [ref=e60]:
+        - button "T" [ref=e61] [cursor=pointer]
+        - button "⌗" [ref=e62] [cursor=pointer]
+        - button "☝" [ref=e63] [cursor=pointer]
+        - button "전체" [ref=e64] [cursor=pointer]
+      - generic [ref=e65]: 색인 완료
+      - generic [ref=e66]:
+        - button "💬 채팅" [ref=e67] [cursor=pointer]
+        - button "📝 메모" [active] [ref=e68] [cursor=pointer]
+        - button "🧠 마인드맵" [ref=e69] [cursor=pointer]
+        - button "🧩 퀴즈" [ref=e70] [cursor=pointer]
+    - generic "드래그하여 너비 조정" [ref=e71]
+    - generic [ref=e72]:
+      - button "사이드바 닫기" [ref=e73] [cursor=pointer]: ×
+      - generic [ref=e110]:
+        - banner [ref=e111]:
+          - heading "메모" [level=2] [ref=e112]
+        - paragraph [ref=e114]:
+          - text: 텍스트를 드래그한 뒤 색상을 선택하면
+          - text: 하이라이트와 메모가 여기에 모입니다.

@@ -1,0 +1,43 @@
+.costudy-logo,
+.costudy-mark {
+  display: block;
+}
+
+.costudy-logo {
+  color: #070761;
+  overflow: visible;
+}
+
+.costudy-logo-ink {
+  color: #070761;
+}
+
+.costudy-logo-co-text,
+.costudy-logo-study {
+  fill: currentColor;
+  font-family: Pretendard, "Arial Black", Arial, sans-serif;
+  font-weight: 900;
+  letter-spacing: -0.055em;
+}
+
+.costudy-logo-co-text {
+  font-size: 74px;
+}
+
+.costudy-logo-study {
+  font-size: 78px;
+}
+
+.costudy-logo-badge {
+  color: #070761;
+}
+
+.costudy-mark {
+  overflow: visible;
+}
+
+.viewer-toolbar-logo {
+  width: 52px;
+  height: auto;
+  flex-shrink: 0;
+}

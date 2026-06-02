@@ -117,6 +117,9 @@ export default function useMindMap(docId) {
         scopeLabel,
         nodes: result.nodes,
         edges: result.edges,
+        rootId: result.rootId,
+        quality: result.quality,
+        warnings: result.warnings ?? [],
         createdAt: new Date().toISOString(),
       }
 

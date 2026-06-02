@@ -1,0 +1,77 @@
+- generic [ref=e114]:
+  - generic [ref=e115]:
+    - generic [ref=e116]:
+      - button "문서 목록으로 돌아가기" [ref=e117] [cursor=pointer]: ‹
+      - generic "ex_documents.pdf" [ref=e118]
+    - generic "문서 보기 도구" [ref=e119]:
+      - generic [ref=e120]:
+        - button "축소" [ref=e121] [cursor=pointer]: "-"
+        - generic [ref=e122]: 100%
+        - button "확대" [ref=e123] [cursor=pointer]: +
+      - generic [ref=e125]:
+        - button "이전 페이지" [disabled] [ref=e126] [cursor=pointer]: ‹
+        - button "페이지 목록 열기" [ref=e127] [cursor=pointer]:
+          - text: 1/32
+          - generic [ref=e128]: ▾
+        - button "다음 페이지" [ref=e129] [cursor=pointer]: ›
+      - generic "보기 방식" [ref=e130]:
+        - button "페이지" [ref=e131] [cursor=pointer]
+        - button "스크롤" [ref=e132] [cursor=pointer]
+  - generic [ref=e133]:
+    - generic [ref=e134]:
+      - button "우선 이번 페이지 핵심인공 신경망의 기본 구조와 작동 원리를 이해하고 딥러닝의 기초 용어를 익힌다. ∨" [ref=e136] [cursor=pointer]:
+        - generic [ref=e137]: 우선
+        - generic [ref=e138]:
+          - strong [ref=e139]: 이번 페이지 핵심
+          - text: 인공 신경망의 기본 구조와 작동 원리를 이해하고 딥러닝의 기초 용어를 익힌다.
+        - generic [ref=e140]: ∨
+      - generic [ref=e144]:
+        - generic [ref=e145]:
+          - generic: "2."
+          - generic: 순방향
+          - generic: 신경망
+          - generic: 세종대학교
+          - generic: 인공지능데이터사이언스학과
+          - generic: 김정현
+          - generic: 딥러닝
+          - generic: 담당교수
+        - generic [ref=e146]:
+          - generic:
+            - generic: P hysical I ntelligence Lab.
+          - generic:
+            - generic: "1"
+      - button "‹" [disabled] [ref=e147] [cursor=pointer]
+      - button "›" [ref=e148] [cursor=pointer]
+      - generic [ref=e164]:
+        - button "T" [ref=e165] [cursor=pointer]
+        - button "⌗" [ref=e166] [cursor=pointer]
+        - button "☝" [ref=e167] [cursor=pointer]
+        - button "전체" [ref=e168] [cursor=pointer]
+      - generic [ref=e169]: 색인 완료
+      - generic [ref=e170]:
+        - button "💬 채팅" [ref=e171] [cursor=pointer]
+        - button "📝 메모" [ref=e172] [cursor=pointer]
+        - button "🧠 마인드맵" [ref=e173] [cursor=pointer]
+        - button "🧩 퀴즈" [active] [ref=e174] [cursor=pointer]
+    - generic "드래그하여 너비 조정" [ref=e175]
+    - generic [ref=e176]:
+      - button "사이드바 닫기" [ref=e177] [cursor=pointer]: ×
+      - generic [ref=e203]:
+        - heading "퀴즈" [level=2] [ref=e205]
+        - generic [ref=e206]:
+          - generic [ref=e207]:
+            - button "현재 페이지" [ref=e208] [cursor=pointer]
+            - button "전체 페이지" [ref=e209] [cursor=pointer]
+            - button "저장 메모" [ref=e210] [cursor=pointer]
+            - button "선택 텍스트" [ref=e211] [cursor=pointer]
+          - button "퀴즈 생성" [ref=e212] [cursor=pointer]
+        - generic [ref=e213]:
+          - generic [ref=e214]:
+            - paragraph [ref=e215]: 저장된 퀴즈
+            - generic [ref=e217]: 아직 없음
+          - generic [ref=e219]:
+            - paragraph [ref=e220]: 오답 노트
+            - generic [ref=e221]:
+              - button "틀린 문제 0개" [ref=e222] [cursor=pointer]: 틀린 문제
+              - button "맞힌 문제 0개" [ref=e223] [cursor=pointer]: 맞힌 문제
+        - paragraph [ref=e226]: 범위를 고른 뒤 퀴즈를 생성하세요.

@@ -1,0 +1,19 @@
+[     293ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ http://127.0.0.1:5174/node_modules/.vite/deps/react-dom_client.js?v=4072bea8:20102
+[   24249ms] [LOG] [useDocumentList] querying with uid: Oy6k4xHgE8SQisSY8RvE7dHzu1j1 @ http://127.0.0.1:5174/src/hooks/useDocumentList.js:21
+[   24254ms] [LOG] [useDocumentList] querying with uid: Oy6k4xHgE8SQisSY8RvE7dHzu1j1 @ http://127.0.0.1:5174/src/hooks/useDocumentList.js:21
+[   67184ms] [LOG] [useDocumentIndex] docId 변경: s1IqNYvgd7ZFf56SClcdt @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[   67184ms] [LOG] [useDocumentIndex] Firestore 조회 시작 (s1IqNYvgd7ZFf56SClcdt) @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[   67186ms] [LOG] [useDocumentIndex] docId 변경: s1IqNYvgd7ZFf56SClcdt @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[   67187ms] [LOG] [useDocumentIndex] Firestore 조회 시작 (s1IqNYvgd7ZFf56SClcdt) @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[   67189ms] [LOG] [useDocumentIndex] docId 변경: s1IqNYvgd7ZFf56SClcdt @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[   67189ms] [LOG] [useDocumentIndex] Firestore 조회 시작 (s1IqNYvgd7ZFf56SClcdt) @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[   67189ms] [LOG] [useDocumentIndex] docId 변경: s1IqNYvgd7ZFf56SClcdt @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[   67189ms] [LOG] [useDocumentIndex] Firestore 조회 시작 (s1IqNYvgd7ZFf56SClcdt) @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[   67780ms] [LOG] [useDocumentIndex] Firestore 로드 완료: 32청크 (s1IqNYvgd7ZFf56SClcdt) @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[   67788ms] [LOG] [useDocumentIndex] Firestore 로드 완료: 32청크 (s1IqNYvgd7ZFf56SClcdt) @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[   67797ms] [LOG] [useDocumentIndex] Firestore 로드 완료: 32청크 (s1IqNYvgd7ZFf56SClcdt) @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[   67807ms] [LOG] [useDocumentIndex] Firestore 로드 완료: 32청크 (s1IqNYvgd7ZFf56SClcdt) @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[  100228ms] [LOG] [useDocumentIndex] docId 변경: s1IqNYvgd7ZFf56SClcdt @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[  100228ms] [LOG] [useDocumentIndex] 캐시 히트: 32청크 (s1IqNYvgd7ZFf56SClcdt) @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[  100229ms] [LOG] [useDocumentIndex] docId 변경: s1IqNYvgd7ZFf56SClcdt @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20
+[  100229ms] [LOG] [useDocumentIndex] 캐시 히트: 32청크 (s1IqNYvgd7ZFf56SClcdt) @ http://127.0.0.1:5174/src/hooks/useDocumentIndex.js:20

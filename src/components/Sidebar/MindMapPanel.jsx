@@ -1,17 +1,21 @@
-import { useState, useRef } from 'react'
+import { useRef, useState } from 'react'
 import useMindMap from '../../hooks/useMindMap'
 import MindMapCanvas from '../MindMap/MindMapCanvas'
 import useDocumentStore from '../../store/documentStore'
 
-const PROGRESS_LABELS = ['', '핵심 개념 추출 중…', '관계 분류 중…', '원문 인용 연결 중…']
+const PROGRESS_LABELS = ['', '학습 흐름 노드 설계 중...', '논리 관계 정렬 중...', '원문 근거 연결 중...']
 
-/**
- * 마인드맵 탭 패널
- *
- * @param {{ docId: string }} props
- */
+function formatMapLabel(map) {
+  if (!map) return ''
+  const date = map.createdAt ? new Date(map.createdAt) : null
+  const time = date && !Number.isNaN(date.getTime())
+    ? date.toLocaleString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+    : ''
+  return [map.scopeLabel, time].filter(Boolean).join(' · ')
+}
+
 export default function MindMapPanel({ docId }) {
-  const { numPages, currentPage, pdfBlob } = useDocumentStore()
+  const { currentPage, pdfBlob } = useDocumentStore()
   const {
     maps, activeMap, generating, progress, error,
     generate, load, remove,
@@ -19,118 +23,122 @@ export default function MindMapPanel({ docId }) {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const confirmTimerRef = useRef(null)
 
+  const noDoc = !docId || !pdfBlob
+  const mapLabel = formatMapLabel(activeMap)
+
   function handleDeleteClick() {
+    if (!activeMap) return
+
     if (confirmDelete) {
       clearTimeout(confirmTimerRef.current)
       remove(activeMap.id)
       setConfirmDelete(false)
-    } else {
-      setConfirmDelete(true)
-      confirmTimerRef.current = setTimeout(() => setConfirmDelete(false), 3000)
+      return
     }
-  }
 
-  const noDoc = !docId || !pdfBlob
+    setConfirmDelete(true)
+    confirmTimerRef.current = setTimeout(() => setConfirmDelete(false), 3000)
+  }
 
   return (
     <div style={styles.panel}>
-      {/* 상단 툴바 */}
       <div style={styles.toolbar}>
         <div style={styles.toolbarLeft}>
           <button
-            style={{ ...styles.genBtn, opacity: (noDoc || generating) ? 0.45 : 1 }}
+            type="button"
+            style={{ ...styles.primaryButton, opacity: (noDoc || generating) ? 0.45 : 1 }}
             disabled={noDoc || generating}
             onClick={() => generate('full')}
           >
             전체 생성
           </button>
           <button
-            style={{ ...styles.genBtn, ...styles.genBtnSecondary, opacity: (noDoc || generating) ? 0.45 : 1 }}
+            type="button"
+            style={{ ...styles.secondaryButton, opacity: (noDoc || generating) ? 0.45 : 1 }}
             disabled={noDoc || generating}
             onClick={() => generate('page')}
           >
             현재 페이지 ({currentPage}p)
           </button>
         </div>
+
         {maps.length > 0 && (
           <select
             style={styles.mapSelect}
             value={activeMap?.id ?? ''}
             onChange={(e) => load(e.target.value)}
+            aria-label="마인드맵 선택"
           >
-            <option value="">-- 이전 맵 --</option>
+            <option value="">이전 마인드맵 선택</option>
             {maps.map((m) => (
               <option key={m.id} value={m.id}>
-                {m.scopeLabel} · {new Date(m.createdAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                {formatMapLabel(m)}
               </option>
             ))}
           </select>
         )}
       </div>
 
-      {/* 생성 진행 상태 */}
       {generating && (
         <div style={styles.progressBar}>
           <div style={styles.progressSteps}>
             {[1, 2, 3].map((step) => (
               <div key={step} style={styles.progressStep}>
-                <div
+                <span
                   style={{
                     ...styles.stepDot,
-                    background: progress?.pass >= step ? '#6366f1' : '#e0e0ff',
-                    transform: progress?.pass === step ? 'scale(1.3)' : 'scale(1)',
+                    background: progress?.pass >= step ? '#070761' : '#d9d9e8',
+                    transform: progress?.pass === step ? 'scale(1.25)' : 'scale(1)',
                   }}
                 />
-                <span style={{
-                  ...styles.stepLabel,
-                  color: progress?.pass >= step ? '#6366f1' : '#ccc',
-                  fontWeight: progress?.pass === step ? 700 : 400,
-                }}>
-                  {['개념 추출', '관계 분류', '원문 연결'][step - 1]}
+                <span
+                  style={{
+                    ...styles.stepLabel,
+                    color: progress?.pass >= step ? '#070761' : '#8d8d98',
+                    fontWeight: progress?.pass === step ? 800 : 500,
+                  }}
+                >
+                  {['노드 설계', '관계 정렬', '근거 연결'][step - 1]}
                 </span>
               </div>
             ))}
           </div>
           <p style={styles.progressText}>
-            {PROGRESS_LABELS[progress?.pass ?? 0] || '준비 중…'}
+            {PROGRESS_LABELS[progress?.pass ?? 0] || '준비 중...'}
           </p>
         </div>
       )}
 
-      {/* 에러 */}
       {error && !generating && (
         <div style={styles.errorBanner}>
           <span style={styles.errorText}>{error}</span>
-          <button style={styles.errorClose} onClick={() => {}}>×</button>
         </div>
       )}
 
-      {/* 빈 상태 */}
       {!generating && !activeMap && !error && (
         <div style={styles.empty}>
-          {noDoc
-            ? <p style={styles.emptyText}>PDF를 열면 마인드맵을 생성할 수 있습니다</p>
-            : <p style={styles.emptyText}>
-                위 버튼으로 마인드맵을 생성하세요.<br />
-                <span style={styles.emptyHint}>노드 클릭 시 해당 페이지로 이동합니다</span>
-              </p>
-          }
+          <p style={styles.emptyText}>
+            {noDoc
+              ? 'PDF를 열면 마인드맵을 생성할 수 있습니다.'
+              : '버튼을 눌러 좌에서 우로 읽히는 논리 흐름도를 생성하세요.'}
+          </p>
         </div>
       )}
 
-      {/* 그래프 */}
       {!generating && activeMap && (
         <div style={styles.canvasWrapper}>
           <div style={styles.mapMeta}>
             <span style={styles.mapMetaText}>
               노드 {activeMap.nodes?.length ?? 0}개 · 관계 {activeMap.edges?.length ?? 0}개 · {activeMap.scopeLabel}
             </span>
+            {mapLabel && <span style={styles.mapDate}>{mapLabel}</span>}
             <button
+              type="button"
               style={confirmDelete ? styles.deleteMapBtnConfirm : styles.deleteMapBtn}
               onClick={handleDeleteClick}
-              title={confirmDelete ? '한 번 더 클릭하면 삭제됩니다' : '이 마인드맵 삭제'}
+              title={confirmDelete ? '한 번 더 클릭하면 삭제됩니다' : '마인드맵 삭제'}
             >
-              {confirmDelete ? '정말 삭제?' : '삭제'}
+              {confirmDelete ? '삭제?' : '삭제'}
             </button>
           </div>
           <MindMapCanvas mindMap={activeMap} />
@@ -143,100 +151,116 @@ export default function MindMapPanel({ docId }) {
 const styles = {
   panel: {
     flex: 1,
+    minHeight: 0,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
-    background: '#fafafa',
+    background: '#eeeef8',
   },
   toolbar: {
-    padding: '10px 12px',
-    background: '#fff',
-    borderBottom: '1px solid #e8e8e8',
+    height: 60,
+    padding: '10px 14px 10px 10px',
+    background: '#ffffff',
+    borderBottom: '1px solid #d9d9d9',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+    flexShrink: 0,
+  },
+  toolbarLeft: {
+    minWidth: 0,
     display: 'flex',
     alignItems: 'center',
     gap: 8,
-    flexShrink: 0,
-    flexWrap: 'wrap',
   },
-  toolbarLeft: {
-    display: 'flex',
-    gap: 6,
-    flex: 1,
-  },
-  genBtn: {
-    padding: '6px 12px',
-    background: '#6366f1',
-    color: '#fff',
-    borderRadius: 7,
-    fontSize: 12,
-    fontWeight: 600,
-    cursor: 'pointer',
-    border: 'none',
+  primaryButton: {
+    width: 90,
+    height: 40,
+    borderRadius: 5,
+    background: '#070761',
+    color: '#ffffff',
+    fontSize: 14,
+    lineHeight: '20px',
+    fontWeight: 800,
     whiteSpace: 'nowrap',
   },
-  genBtnSecondary: {
-    background: '#f0f0ff',
-    color: '#6366f1',
-    border: '1px solid #e0e0ff',
+  secondaryButton: {
+    minWidth: 127,
+    height: 40,
+    padding: '0 17px',
+    borderRadius: 5,
+    background: '#eeeef8',
+    color: '#070761',
+    fontSize: 14,
+    lineHeight: '20px',
+    fontWeight: 800,
+    whiteSpace: 'nowrap',
   },
   mapSelect: {
-    fontSize: 11,
-    borderRadius: 6,
-    border: '1px solid #e0e0e0',
-    padding: '4px 6px',
-    color: '#555',
-    background: '#fff',
-    cursor: 'pointer',
-    maxWidth: 160,
+    width: 180,
+    maxWidth: '44%',
+    height: 30,
+    padding: '0 12px',
+    borderRadius: 5,
+    border: '1px solid #d9d9d9',
+    background: '#ffffff',
+    color: '#6e6e6e',
+    fontSize: 12,
+    lineHeight: '20px',
+    fontWeight: 500,
   },
   progressBar: {
-    padding: '16px 16px 12px',
-    background: '#f5f5ff',
-    borderBottom: '1px solid #e0e0ff',
+    padding: '16px 18px 13px',
+    background: '#ffffff',
+    borderBottom: '1px solid #d9d9d9',
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
-    gap: 8,
+    gap: 10,
   },
   progressSteps: {
     display: 'flex',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
   },
   progressStep: {
+    flex: 1,
     display: 'flex',
     flexDirection: 'column',
     alignItems: 'center',
-    gap: 4,
-    flex: 1,
+    gap: 5,
   },
   stepDot: {
-    width: 10,
-    height: 10,
+    width: 9,
+    height: 9,
     borderRadius: '50%',
     transition: 'transform 0.2s, background 0.2s',
   },
   stepLabel: {
-    fontSize: 10,
-    transition: 'color 0.2s',
+    fontSize: 11,
+    lineHeight: '16px',
   },
   progressText: {
-    fontSize: 11,
-    color: '#6366f1',
+    color: '#070761',
+    fontSize: 12,
+    lineHeight: '18px',
+    fontWeight: 700,
     textAlign: 'center',
-    fontWeight: 500,
   },
   errorBanner: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '8px 14px',
+    padding: '9px 14px',
     background: '#fff0f0',
-    borderBottom: '1px solid #fcc',
+    borderBottom: '1px solid #fca5a5',
     flexShrink: 0,
   },
-  errorText: { fontSize: 12, color: '#c00', flex: 1 },
-  errorClose: { fontSize: 16, color: '#aaa', cursor: 'pointer', background: 'transparent', border: 'none' },
+  errorText: {
+    color: '#c02626',
+    fontSize: 12,
+    lineHeight: '18px',
+    fontWeight: 600,
+  },
   empty: {
     flex: 1,
     display: 'flex',
@@ -245,50 +269,61 @@ const styles = {
     padding: 24,
   },
   emptyText: {
-    fontSize: 13,
-    color: '#bbb',
+    color: '#6e6e6e',
+    fontSize: 14,
+    lineHeight: '22px',
     textAlign: 'center',
-    lineHeight: 1.8,
-  },
-  emptyHint: {
-    fontSize: 11,
-    color: '#ccc',
   },
   canvasWrapper: {
     flex: 1,
+    minHeight: 0,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
   },
   mapMeta: {
+    height: 40,
+    padding: '0 14px',
+    background: '#ffffff',
+    borderBottom: '1px solid #d9d9d9',
     display: 'flex',
     alignItems: 'center',
-    padding: '6px 12px',
-    background: '#fff',
-    borderBottom: '1px solid #f0f0f0',
+    gap: 12,
     flexShrink: 0,
   },
   mapMetaText: {
-    fontSize: 11,
-    color: '#aaa',
     flex: 1,
+    minWidth: 0,
+    color: '#6e6e6e',
+    fontSize: 14,
+    lineHeight: '20px',
+    fontWeight: 500,
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+  },
+  mapDate: {
+    color: '#6e6e6e',
+    fontSize: 12,
+    lineHeight: '20px',
+    fontWeight: 500,
+    whiteSpace: 'nowrap',
   },
   deleteMapBtn: {
-    fontSize: 11,
-    color: '#ccc',
-    cursor: 'pointer',
-    background: 'transparent',
-    border: 'none',
-    padding: '2px 4px',
+    color: '#6e6e6e',
+    fontSize: 12,
+    lineHeight: '20px',
+    fontWeight: 600,
+    padding: '2px 6px',
   },
   deleteMapBtnConfirm: {
-    fontSize: 11,
-    color: '#ef4444',
-    cursor: 'pointer',
-    fontWeight: 700,
-    background: '#fff0f0',
+    height: 24,
+    padding: '2px 8px',
+    borderRadius: 5,
     border: '1px solid #fca5a5',
-    borderRadius: 4,
-    padding: '3px 8px',
+    background: '#fff0f0',
+    color: '#ef4444',
+    fontSize: 12,
+    fontWeight: 800,
   },
 }

@@ -82,10 +82,11 @@ const styles = {
   panel: {
     width: '100%',
     height: '100%',
-    background: '#fff',
-    borderLeft: '1px solid #e0e0e0',
+    background: '#ffffff',
+    borderLeft: '1px solid rgba(7,7,97,0.1)',
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
+    color: '#111111',
   },
 }

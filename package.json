@@ -5,6 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test:ai": "node scripts/ai-pipeline.test.mjs",
+    "test:rag": "node scripts/rag-baseline.test.mjs",
+    "test:chunking": "node scripts/chunking.test.mjs",
+    "test:quiz": "node scripts/quiz-diversity.test.mjs",
+    "test:learning-gate": "node scripts/learning-question-gate.test.mjs",
+    "test:mindmap": "node scripts/mindmap-validation.test.mjs",
+    "test:ui-ux": "node scripts/ui-ux-regression.test.mjs",
     "build": "vite build",
     "preview": "vite preview"
   },

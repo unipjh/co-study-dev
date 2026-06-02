@@ -70,7 +70,10 @@ export default function useLearningUnits(docId) {
       unit.endPageIndex === candidate.endPageIndex
     ))
 
-    if (!options.force && existing?.sourceTextHash === sourceTextHash) return existing
+    const hasPageOxQuestions = existing?.pageOxQuestions &&
+      typeof existing.pageOxQuestions === 'object' &&
+      Object.keys(existing.pageOxQuestions).length > 0
+    if (!options.force && existing?.sourceTextHash === sourceTextHash && hasPageOxQuestions) return existing
     if (generatingUnitIds.current.has(id)) return existing ?? null
 
     generatingUnitIds.current.add(id)

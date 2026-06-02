@@ -26,7 +26,7 @@ export default function LearningGoalOverlay({
   const statusText = loading
     ? '목표 생성 중'
     : indexing
-      ? `목표 준비 중 ${indexTotal > 0 ? `${indexProgress}/${indexTotal}` : ''}`
+      ? `목표 준비 중${indexTotal > 0 ? ` ${indexProgress}/${indexTotal}` : ''}`
       : unavailable
         ? '텍스트 부족'
         : error && !goal
@@ -62,10 +62,10 @@ export default function LearningGoalOverlay({
         >
           <span style={styles.badge}>{statusText}</span>
           <span style={{ ...styles.mainText, ...(expanded ? styles.mainTextExpanded : {}) }}>
-            <strong style={styles.label}>핵심 목표</strong>
+            <strong style={styles.label}>이번 페이지 핵심</strong>
             {mainText}
           </span>
-          <span style={styles.chevron}>{expanded ? '접기' : '보기'}</span>
+          <span style={styles.chevron}>{expanded ? '⌃' : '∨'}</span>
         </button>
       </div>
 
@@ -75,23 +75,25 @@ export default function LearningGoalOverlay({
             <>
               {pageHint && (
                 <div style={styles.pageFocus}>
-                  <span style={styles.pageFocusLabel}>현재 페이지 포커스</span>
+                  <span style={styles.pageFocusLabel}>이번 페이지에서 볼 것</span>
                   {pageHint}
                 </div>
               )}
               {goal.objectives?.length > 0 && (
                 <div style={styles.block}>
-                  <div style={styles.blockTitle}>읽으면서 확인할 것</div>
+                  <div style={styles.blockTitle}>📌 읽기 포인트</div>
                   {goal.objectives.map((item, index) => (
                     <div key={index} style={styles.item}>{item}</div>
                   ))}
                 </div>
               )}
               {goal.focusQuestions?.length > 0 && (
-                <div style={styles.block}>
-                  <div style={styles.blockTitle}>사고 질문</div>
+                <div style={styles.questionBlock}>
+                  <div style={styles.blockTitle}>생각해 보기</div>
                   {goal.focusQuestions.map((item, index) => (
-                    <div key={index} style={styles.item}>{item}</div>
+                    <div key={index} style={styles.questionItem}>
+                      <span>{item}</span>
+                    </div>
                   ))}
                 </div>
               )}
@@ -108,16 +110,6 @@ export default function LearningGoalOverlay({
           {error && <div style={styles.error}>{error}</div>}
           <div style={styles.actions}>
             <span style={styles.pageHint}>{pageRange ?? `${pageNumber}p`}</span>
-            {goal && (
-              <button
-                type="button"
-                style={{ ...styles.actionBtn, ...(goal.completed ? styles.completeBtn : {}) }}
-                onClick={() => runAction(onToggleComplete)}
-                disabled={busyAction}
-              >
-                {goal.completed ? '완료 취소' : '완료'}
-              </button>
-            )}
             <button
               type="button"
               style={styles.actionBtn}
@@ -125,6 +117,14 @@ export default function LearningGoalOverlay({
               disabled={busyAction || loading || unavailable}
             >
               다시 생성
+            </button>
+            <button
+              type="button"
+              style={{ ...styles.actionBtn, ...styles.closeActionBtn }}
+              onClick={() => setExpanded(false)}
+              disabled={busyAction}
+            >
+              닫기
             </button>
           </div>
         </div>
@@ -140,18 +140,19 @@ const styles = {
     flexShrink: 0,
     display: 'flex',
     justifyContent: 'center',
-    padding: '10px clamp(12px, 5vw, 56px)',
-    background: '#eeeeee',
-    borderBottom: '1px solid #d8d8d8',
+    padding: '12px clamp(12px, 5vw, 56px)',
+    background: '#ffffff',
+    borderBottom: '1px solid #efeff6',
     zIndex: 18,
     pointerEvents: 'none',
+    fontFamily: 'Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
   },
   card: {
-    width: 'min(760px, 100%)',
-    borderRadius: 8,
-    background: 'rgba(255,255,255,0.94)',
-    border: '1px solid rgba(40,40,40,0.12)',
-    boxShadow: '0 6px 22px rgba(0,0,0,0.14)',
+    width: 'min(1200px, 100%)',
+    borderRadius: 5,
+    background: '#ffffff',
+    border: '1px solid #e1e1ec',
+    boxShadow: '0 8px 18px rgba(7,7,97,0.08)',
     color: '#202124',
     pointerEvents: 'auto',
     overflow: 'hidden',
@@ -161,11 +162,11 @@ const styles = {
   },
   summary: {
     width: '100%',
-    minHeight: 42,
+    minHeight: 44,
     display: 'flex',
     alignItems: 'center',
-    gap: 10,
-    padding: '8px 12px',
+    gap: 18,
+    padding: '8px 22px',
     border: 'none',
     background: 'transparent',
     cursor: 'pointer',
@@ -173,25 +174,26 @@ const styles = {
   },
   badge: {
     flexShrink: 0,
-    padding: '3px 8px',
-    borderRadius: 999,
-    background: '#eef2ff',
-    color: '#4f46e5',
-    fontSize: 11,
+    padding: '4px 9px',
+    borderRadius: 5,
+    background: '#eeeef8',
+    color: '#070761',
+    fontSize: 13,
     fontWeight: 800,
     lineHeight: 1.2,
     whiteSpace: 'nowrap',
   },
   label: {
     marginRight: 8,
-    color: '#111827',
+    color: '#111111',
+    fontWeight: 900,
   },
   mainText: {
     flex: 1,
     minWidth: 0,
-    color: '#333',
+    color: '#111111',
     fontSize: 13,
-    fontWeight: 600,
+    fontWeight: 700,
     lineHeight: 1.4,
     display: '-webkit-box',
     WebkitLineClamp: 2,
@@ -204,8 +206,8 @@ const styles = {
   },
   chevron: {
     flexShrink: 0,
-    color: '#6b7280',
-    fontSize: 11,
+    color: '#77778a',
+    fontSize: 12,
     fontWeight: 700,
     whiteSpace: 'nowrap',
   },
@@ -215,48 +217,67 @@ const styles = {
     left: '50%',
     transform: 'translateX(-50%)',
     width: 'calc(100% - 24px)',
-    maxWidth: 760,
+    maxWidth: 1200,
     maxHeight: 'min(56vh, 440px)',
     overflowY: 'auto',
-    border: '1px solid rgba(40,40,40,0.12)',
-    borderRadius: 8,
-    background: 'rgba(255,255,255,0.98)',
-    boxShadow: '0 14px 34px rgba(0,0,0,0.22)',
-    padding: '10px 12px 12px',
+    border: '1px solid #e1e1ec',
+    borderRadius: 5,
+    background: '#ffffff',
+    boxShadow: '0 18px 42px rgba(7,7,97,0.14)',
+    padding: '28px 30px 16px',
     display: 'flex',
     flexDirection: 'column',
-    gap: 10,
+    gap: 22,
     pointerEvents: 'auto',
   },
   block: {
     display: 'grid',
-    gap: 5,
+    gap: 12,
+  },
+  questionBlock: {
+    display: 'grid',
+    gap: 10,
+    padding: 0,
+    borderRadius: 5,
+    background: 'transparent',
+    border: 'none',
+    boxShadow: 'none',
   },
   blockTitle: {
-    color: '#6b7280',
-    fontSize: 11,
-    fontWeight: 800,
+    color: '#070761',
+    fontSize: 16,
+    fontWeight: 900,
   },
   item: {
-    color: '#2d2d2d',
-    fontSize: 12,
-    lineHeight: 1.45,
+    color: '#111111',
+    fontSize: 15,
+    lineHeight: '25px',
+    fontWeight: 650,
+  },
+  questionItem: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 0,
+    color: '#111111',
+    fontSize: 15,
+    lineHeight: '24px',
+    fontWeight: 700,
   },
   pageFocus: {
     display: 'flex',
     flexDirection: 'column',
     gap: 4,
-    padding: '8px 9px',
-    borderRadius: 7,
+    padding: '12px 14px',
+    borderRadius: 5,
     background: '#f8f8ff',
     color: '#333',
-    fontSize: 12,
-    lineHeight: 1.45,
+    fontSize: 15,
+    lineHeight: '25px',
   },
   pageFocusLabel: {
-    color: '#6366f1',
-    fontSize: 10,
-    fontWeight: 800,
+    color: '#070761',
+    fontSize: 12,
+    fontWeight: 900,
   },
   keywords: {
     display: 'flex',
@@ -264,17 +285,17 @@ const styles = {
     gap: 5,
   },
   keyword: {
-    padding: '3px 7px',
-    borderRadius: 999,
-    background: '#f3f4f6',
-    color: '#4b5563',
-    fontSize: 11,
-    fontWeight: 700,
+    padding: '7px 16px',
+    borderRadius: 5,
+    background: '#f0f0fb',
+    color: '#070761',
+    fontSize: 13,
+    fontWeight: 900,
   },
   error: {
     color: '#b42318',
     background: '#fff3f0',
-    borderRadius: 6,
+    borderRadius: 5,
     padding: '7px 8px',
     fontSize: 12,
   },
@@ -291,14 +312,18 @@ const styles = {
     fontWeight: 700,
   },
   actionBtn: {
-    border: '1px solid #d8d8d8',
-    background: '#fff',
-    color: '#333',
-    borderRadius: 7,
-    padding: '5px 9px',
+    border: 'none',
+    background: '#efeffa',
+    color: '#070761',
+    borderRadius: 5,
+    padding: '8px 18px',
     fontSize: 12,
     fontWeight: 700,
     cursor: 'pointer',
+  },
+  closeActionBtn: {
+    background: '#070761',
+    color: '#ffffff',
   },
   completeBtn: {
     background: '#ecfdf3',

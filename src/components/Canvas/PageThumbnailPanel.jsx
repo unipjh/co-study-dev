@@ -9,7 +9,7 @@ import { Document, Page } from 'react-pdf'
  *
  * @param {{ pdfBlob, numPages, currentPage, onPageSelect, onClose }} props
  */
-export default function PageThumbnailPanel({ pdfBlob, numPages, currentPage, onPageSelect, onClose }) {
+export default function PageThumbnailPanel({ pdfBlob, numPages, currentPage, rightInset = 0, onPageSelect, onClose }) {
   const panelRef  = useRef(null)
   const activeRef = useRef(null)
 
@@ -30,7 +30,7 @@ export default function PageThumbnailPanel({ pdfBlob, numPages, currentPage, onP
   if (!pdfBlob || numPages === 0) return null
 
   return (
-    <div ref={panelRef} style={styles.panel}>
+    <div ref={panelRef} style={{ ...styles.panel, right: rightInset }}>
       <Document
         file={pdfBlob}
         loading={null}

@@ -1,23 +1,59 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   PRESET_COLORS,
   loadCustomColors,
-  saveCustomColor,
   removeCustomColor,
+  saveCustomColor,
   getDisplayColor,
   getColorLabel,
 } from '../../lib/colorUtils'
 
-// AI 전용 purple 제외한 팔레트 표시용 프리셋
-const VISIBLE_PRESETS = PRESET_COLORS.filter((c) => c.key !== 'purple')
+const VISIBLE_PRESETS = PRESET_COLORS.filter((color) => color.key !== 'purple')
 
-/**
- * 하이라이트 클릭 시 표시되는 인라인 팝업
- * — 메모 조회·수정, Chat으로 보내기, 삭제
- * — 프리셋 3색 + 커스텀 색상 변경 지원 (staged 확인)
- *
- * @param {{ annotation, containerSize, onUpdate, onDelete, onSendToChat, onClose }} props
- */
+function normalizeHex(value) {
+  const raw = String(value ?? '').trim()
+  const withHash = raw.startsWith('#') ? raw : `#${raw}`
+  return /^#[0-9a-fA-F]{6}$/.test(withHash) ? withHash.toUpperCase() : null
+}
+
+function CustomColorPicker({ draft, onDraftChange, onApply, onCancel }) {
+  const normalized = normalizeHex(draft)
+
+  return (
+    <div style={styles.customPicker}>
+      <input
+        type="color"
+        value={normalized ?? '#FF5733'}
+        onChange={(event) => onDraftChange(event.target.value.toUpperCase())}
+        style={styles.colorInput}
+        aria-label="색상 선택"
+      />
+      <input
+        type="text"
+        value={draft}
+        onChange={(event) => onDraftChange(event.target.value)}
+        style={{
+          ...styles.hexInput,
+          ...(draft && !normalized ? styles.hexInputInvalid : {}),
+        }}
+        placeholder="#FF5733"
+        aria-label="색상 코드"
+      />
+      <button
+        type="button"
+        style={{ ...styles.applyColorBtn, opacity: normalized ? 1 : 0.45 }}
+        onClick={() => normalized && onApply(normalized)}
+        disabled={!normalized}
+      >
+        색상 지정
+      </button>
+      <button type="button" style={styles.cancelColorBtn} onClick={onCancel} aria-label="색상 지정 취소">
+        ×
+      </button>
+    </div>
+  )
+}
+
 export default function AnnotationPopup({
   annotation,
   displayPageIndex,
@@ -27,45 +63,82 @@ export default function AnnotationPopup({
   onSendToChat,
   onClose,
 }) {
-  const [editing, setEditing]         = useState(false)
-  const [content, setContent]         = useState(annotation.content ?? '')
-  const [dragOffset, setDragOffset]   = useState({ x: 0, y: 0 })
+  const [editing, setEditing] = useState(false)
+  const [content, setContent] = useState(annotation.content ?? '')
+  const [selectedColor, setSelectedColor] = useState(annotation.color)
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 })
   const [customColors, setCustomColors] = useState(loadCustomColors)
-  const [stagedColor, setStagedColor] = useState(null)  // 커스텀 색상 확인 대기 중
+  const [customPickerOpen, setCustomPickerOpen] = useState(false)
+  const [customDraft, setCustomDraft] = useState('#FF5733')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const confirmTimerRef = useRef(null)
-  const ref      = useRef(null)
-  const inputRef = useRef(null)
+  const ref = useRef(null)
 
-  // annotation이 바뀌면 상태 초기화
   useEffect(() => {
     setContent(annotation.content ?? '')
+    setSelectedColor(annotation.color)
     setEditing(false)
     setDragOffset({ x: 0, y: 0 })
-    setStagedColor(null)
+    setCustomPickerOpen(false)
     setConfirmDelete(false)
     clearTimeout(confirmTimerRef.current)
-  }, [annotation.id])
+  }, [annotation.id, annotation.color, annotation.content])
 
-  function handleDeleteClick() {
-    if (confirmDelete) {
-      clearTimeout(confirmTimerRef.current)
-      onDelete?.(annotation.id)
-    } else {
-      setConfirmDelete(true)
-      confirmTimerRef.current = setTimeout(() => setConfirmDelete(false), 3000)
+  useEffect(() => {
+    function handlePointerDown(event) {
+      if (ref.current && !ref.current.contains(event.target)) onClose()
     }
+    document.addEventListener('pointerdown', handlePointerDown)
+    return () => document.removeEventListener('pointerdown', handlePointerDown)
+  }, [onClose])
+
+  const displayRects = (() => {
+    if (displayPageIndex != null && annotation.rectGroups) {
+      const group = annotation.rectGroups.find((rectGroup) => rectGroup.pageIndex === displayPageIndex)
+      if (group?.rects?.length) return group.rects
+    }
+    return annotation.rects ?? []
+  })()
+
+  if (!containerSize || !displayRects.length) return null
+
+  const colorChanged = selectedColor !== annotation.color
+  const contentChanged = content !== (annotation.content ?? '')
+  const hasDraftChanges = colorChanged || contentChanged
+  const displayLabel = getColorLabel(selectedColor)
+
+  const lastRect = displayRects[displayRects.length - 1]
+  const popupWidth = 328
+  const popupMinMargin = 4
+  const popupEstimatedHeight = editing || hasDraftChanges || customPickerOpen ? 392 : 282
+  let top = (lastRect.top + lastRect.height) * containerSize.height + 6 + dragOffset.y
+  let left = displayRects[0].left * containerSize.width + dragOffset.x
+
+  if (dragOffset.x === 0) {
+    left = Math.max(
+      popupMinMargin,
+      Math.min(left, containerSize.width - popupWidth - popupMinMargin)
+    )
+  }
+  if (dragOffset.y === 0) {
+    top = Math.max(
+      popupMinMargin,
+      Math.min(top, Math.max(popupMinMargin, containerSize.height - popupEstimatedHeight))
+    )
   }
 
-  function startDrag(e) {
-    e.preventDefault()
-    e.stopPropagation()
-    const startX = e.clientX
-    const startY = e.clientY
+  function startDrag(event) {
+    event.preventDefault()
+    event.stopPropagation()
+    const startX = event.clientX
+    const startY = event.clientY
     const base = { ...dragOffset }
 
-    function onMove(ev) {
-      setDragOffset({ x: base.x + ev.clientX - startX, y: base.y + ev.clientY - startY })
+    function onMove(moveEvent) {
+      setDragOffset({
+        x: base.x + moveEvent.clientX - startX,
+        y: base.y + moveEvent.clientY - startY,
+      })
     }
     function onUp() {
       document.removeEventListener('mousemove', onMove)
@@ -75,176 +148,117 @@ export default function AnnotationPopup({
     document.addEventListener('mouseup', onUp)
   }
 
-  // 팝업 외부 클릭 시 닫기
-  useEffect(() => {
-    function handlePointerDown(e) {
-      if (ref.current && !ref.current.contains(e.target)) onClose()
+  function handleDeleteClick() {
+    if (confirmDelete) {
+      clearTimeout(confirmTimerRef.current)
+      onDelete?.(annotation.id)
+      return
     }
-    document.addEventListener('pointerdown', handlePointerDown)
-    return () => document.removeEventListener('pointerdown', handlePointerDown)
-  }, [onClose])
 
-  // 클릭된 페이지에 해당하는 rects 선택 (멀티 드래그 시 다른 페이지도 정확히 포지셔닝)
-  const displayRects = (() => {
-    if (displayPageIndex != null && annotation.rectGroups) {
-      const g = annotation.rectGroups.find((r) => r.pageIndex === displayPageIndex)
-      if (g?.rects?.length) return g.rects
-    }
-    return annotation.rects ?? []
-  })()
-
-  if (!containerSize || !displayRects.length) return null
-
-  // 마지막 줄 rect 기준으로 팝업을 하이라이트 아래에 위치
-  const lastRect = displayRects[displayRects.length - 1]
-  const POPUP_WIDTH = 260
-  const POPUP_MIN_MARGIN = 4
-  const POPUP_ESTIMATED_HEIGHT = editing ? 285 : 235
-  let top  = (lastRect.top + lastRect.height) * containerSize.height + 6 + dragOffset.y
-  let left = displayRects[0].left * containerSize.width + dragOffset.x
-  // 오른쪽 경계 초과 방지 (드래그 중에는 적용 안 함)
-  if (dragOffset.x === 0) {
-    left = Math.max(
-      POPUP_MIN_MARGIN,
-      Math.min(left, containerSize.width - POPUP_WIDTH - POPUP_MIN_MARGIN)
-    )
+    setConfirmDelete(true)
+    confirmTimerRef.current = setTimeout(() => setConfirmDelete(false), 3000)
   }
-  if (dragOffset.y === 0) {
-    top = Math.max(
-      POPUP_MIN_MARGIN,
-      Math.min(top, Math.max(POPUP_MIN_MARGIN, containerSize.height - POPUP_ESTIMATED_HEIGHT))
-    )
+
+  function handleCustomApply(hex) {
+    const next = saveCustomColor(hex, customColors)
+    setCustomColors(next)
+    setSelectedColor(hex)
+    setCustomPickerOpen(false)
+    setCustomDraft(hex)
+  }
+
+  function handleRemoveCustom(event, hex) {
+    event.stopPropagation()
+    const next = removeCustomColor(hex, customColors)
+    setCustomColors(next)
+    if (selectedColor === hex) setSelectedColor(annotation.color)
   }
 
   function handleSave() {
-    onUpdate?.(annotation.id, { content })
+    onUpdate?.(annotation.id, {
+      content,
+      color: selectedColor,
+    })
     setEditing(false)
   }
 
-  function handlePresetColorClick(colorKey) {
-    setStagedColor(null)
-    onUpdate?.(annotation.id, { color: colorKey })
+  function handleCancelEdit() {
+    setEditing(false)
+    setContent(annotation.content ?? '')
+    setSelectedColor(annotation.color)
+    setCustomPickerOpen(false)
   }
-
-  function handleCustomColorClick(hex) {
-    setStagedColor(null)
-    onUpdate?.(annotation.id, { color: hex })
-  }
-
-  function handleCustomColorChange(e) {
-    setStagedColor(e.target.value)
-  }
-
-  function handleConfirmCustomColor() {
-    if (!stagedColor) return
-    const next = saveCustomColor(stagedColor, customColors)
-    setCustomColors(next)
-    onUpdate?.(annotation.id, { color: stagedColor })
-    setStagedColor(null)
-  }
-
-  function handleCancelCustomColor() {
-    setStagedColor(null)
-  }
-
-  function handleRemoveCustom(e, hex) {
-    e.stopPropagation()
-    const next = removeCustomColor(hex, customColors)
-    setCustomColors(next)
-  }
-
-  const displayLabel = getColorLabel(annotation.color)
 
   return (
     <div
       ref={ref}
-      style={{ ...styles.popup, top, left, width: POPUP_WIDTH }}
-      // 클릭이 selection을 건드리지 않도록
-      onPointerDown={(e) => e.stopPropagation()}
+      style={{ ...styles.popup, top, left, width: popupWidth }}
+      onPointerDown={(event) => event.stopPropagation()}
     >
-      {/* 드래그 핸들 */}
-      <div style={styles.dragHandle} onMouseDown={startDrag} title="드래그하여 이동">
-        ⠿
-      </div>
+      <div style={styles.dragHandle} onMouseDown={startDrag} title="드래그하여 이동" />
 
-      {/* 헤더: 색상 변경 + 삭제 */}
       <div style={styles.header}>
-        {/* 프리셋 색상 */}
-        {VISIBLE_PRESETS.map((c) => (
+        {VISIBLE_PRESETS.map((color) => (
           <button
-            key={c.key}
-            title={c.label}
+            key={color.key}
+            type="button"
+            title={color.label}
+            aria-label={color.label}
             style={{
               ...styles.colorBtn,
-              background: c.hex,
-              outline: annotation.color === c.key || annotation.color === c.hex ? '2px solid #1a1a1a' : 'none',
-              outlineOffset: 1,
+              background: color.hex,
+              ...(selectedColor === color.key || selectedColor === color.hex ? styles.colorBtnSelected : {}),
             }}
-            onClick={() => handlePresetColorClick(c.key)}
+            onClick={() => {
+              setSelectedColor(color.key)
+              setCustomPickerOpen(false)
+            }}
           />
         ))}
 
-        {/* 커스텀 색상 목록 */}
         {customColors.map((hex) => (
           <div key={hex} style={styles.customBtnWrap}>
             <button
+              type="button"
               title={hex}
+              aria-label={hex}
               style={{
                 ...styles.colorBtn,
                 background: hex,
-                outline: annotation.color === hex ? '2px solid #1a1a1a' : 'none',
-                outlineOffset: 1,
+                ...(selectedColor === hex ? styles.colorBtnSelected : {}),
               }}
-              onClick={() => handleCustomColorClick(hex)}
+              onClick={() => {
+                setSelectedColor(hex)
+                setCustomPickerOpen(false)
+              }}
             />
             <button
+              type="button"
               style={styles.removeBtn}
-              onClick={(e) => handleRemoveCustom(e, hex)}
-              title="제거"
+              onClick={(event) => handleRemoveCustom(event, hex)}
+              title="색상 제거"
             >
               ×
             </button>
           </div>
         ))}
 
-        {/* + 커스텀 색상 추가 */}
-        {!stagedColor && (
-          <button
-            title="색상 추가"
-            style={styles.addBtn}
-            onClick={() => { setStagedColor('#FF5733'); inputRef.current?.click() }}
-          >
-            +
-          </button>
-        )}
-        <input
-          ref={inputRef}
-          type="color"
-          style={styles.hiddenInput}
-          value={stagedColor ?? '#FF5733'}
-          onChange={handleCustomColorChange}
-        />
-
-        {/* 커스텀 색상 스테이징 확인 */}
-        {stagedColor && (
-          <>
-            <div
-              style={{ ...styles.colorBtn, background: stagedColor, border: '2px solid rgba(0,0,0,0.3)', cursor: 'pointer' }}
-              title={`선택 중: ${stagedColor}`}
-              onClick={() => inputRef.current?.click()}
-            />
-            <button style={styles.confirmBtn} onClick={handleConfirmCustomColor} title="이 색상으로 확정">✓</button>
-            <button style={styles.cancelCustomBtn} onClick={handleCancelCustomColor} title="취소">✗</button>
-          </>
-        )}
-
-        {!stagedColor && (
-          <>
-            <span style={styles.colorLabel}>{displayLabel}</span>
-            <div style={styles.spacer} />
-          </>
-        )}
         <button
+          type="button"
+          title="색상 추가"
+          style={styles.addBtn}
+          onClick={() => {
+            setCustomDraft(selectedColor?.startsWith?.('#') ? selectedColor : '#FF5733')
+            setCustomPickerOpen((value) => !value)
+          }}
+        >
+          +
+        </button>
+
+        <span style={styles.colorLabel}>{displayLabel}</span>
+        <div style={styles.spacer} />
+        <button
+          type="button"
           style={confirmDelete ? styles.deleteBtnConfirm : styles.deleteBtn}
           onClick={handleDeleteClick}
           title={confirmDelete ? '한 번 더 클릭하면 삭제됩니다' : '삭제'}
@@ -253,41 +267,53 @@ export default function AnnotationPopup({
         </button>
       </div>
 
-      {/* 원문 텍스트 */}
+      {customPickerOpen && (
+        <CustomColorPicker
+          draft={customDraft}
+          onDraftChange={setCustomDraft}
+          onApply={handleCustomApply}
+          onCancel={() => setCustomPickerOpen(false)}
+        />
+      )}
+
       <p style={styles.sourceText}>"{annotation.text}"</p>
 
-      {/* 메모 영역 */}
       {editing ? (
         <div style={styles.editArea}>
           <textarea
             autoFocus
             style={styles.textarea}
             value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="메모를 입력하세요"
+            onChange={(event) => setContent(event.target.value)}
+            placeholder="메모를 입력하세요."
             rows={3}
           />
           <div style={styles.editActions}>
-            <button
-              style={styles.cancelBtn}
-              onClick={() => { setEditing(false); setContent(annotation.content ?? '') }}
-            >
-              취소
-            </button>
-            <button style={styles.saveBtn} onClick={handleSave}>저장</button>
+            <button type="button" style={styles.cancelBtn} onClick={handleCancelEdit}>취소</button>
+            <button type="button" style={styles.saveBtn} onClick={handleSave}>저장</button>
           </div>
         </div>
       ) : (
-        <div style={styles.memoArea} onClick={() => setEditing(true)} title="클릭해서 수정">
+        <button
+          type="button"
+          style={styles.memoArea}
+          onClick={() => setEditing(true)}
+          title="클릭해서 수정"
+        >
           {content
-            ? <p style={styles.memoText}>{content}</p>
-            : <p style={styles.memoPlaceholder}>메모 추가...</p>
-          }
+            ? <span style={styles.memoText}>{content}</span>
+            : <span style={styles.memoPlaceholder}>메모 추가...</span>}
+        </button>
+      )}
+
+      {hasDraftChanges && !editing && (
+        <div style={styles.draftActions}>
+          <button type="button" style={styles.cancelBtn} onClick={handleCancelEdit}>취소</button>
+          <button type="button" style={styles.saveBtn} onClick={handleSave}>저장</button>
         </div>
       )}
 
-      {/* Chat으로 보내기 */}
-      <button style={styles.chatBtn} onClick={() => onSendToChat?.(annotation)}>
+      <button type="button" style={styles.chatBtn} onClick={() => onSendToChat?.(annotation)}>
         Chat으로 보내기
       </button>
     </div>
@@ -299,29 +325,39 @@ const styles = {
     position: 'absolute',
     zIndex: 200,
     background: '#fff',
-    border: '1px solid #e0e0e0',
-    borderRadius: 10,
-    boxShadow: '0 4px 20px rgba(0,0,0,0.13)',
-    padding: 12,
+    border: '1px solid #d8d8ea',
+    borderRadius: 6,
+    boxShadow: '0 14px 30px rgba(7,7,97,0.14)',
+    padding: '14px 14px 11px',
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
   },
   dragHandle: {
-    textAlign: 'center',
-    fontSize: 14,
-    color: '#ccc',
+    height: 8,
     cursor: 'grab',
-    userSelect: 'none',
-    lineHeight: 1,
-    paddingBottom: 4,
-    borderBottom: '1px solid #f0f0f0',
-    marginBottom: 4,
+    margin: '-8px 0 0',
   },
-  header: { display: 'flex', alignItems: 'center', gap: 5, flexWrap: 'nowrap', minHeight: 22 },
+  header: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    flexWrap: 'nowrap',
+    minHeight: 28,
+  },
   colorBtn: {
-    width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
-    cursor: 'pointer', border: 'none', padding: 0,
+    width: 22,
+    height: 22,
+    borderRadius: '50%',
+    flexShrink: 0,
+    cursor: 'pointer',
+    border: '1.5px solid #8585b0',
+    padding: 0,
+  },
+  colorBtnSelected: {
+    outline: '2px solid #070761',
+    outlineOffset: 2,
+    boxShadow: '0 0 0 4px rgba(65,255,167,0.24)',
   },
   customBtnWrap: {
     position: 'relative',
@@ -331,8 +367,8 @@ const styles = {
     position: 'absolute',
     top: -4,
     right: -4,
-    width: 11,
-    height: 11,
+    width: 12,
+    height: 12,
     borderRadius: '50%',
     background: '#aaa',
     color: '#fff',
@@ -341,102 +377,202 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    lineHeight: 1,
     border: 'none',
     padding: 0,
+    lineHeight: 1,
   },
   addBtn: {
-    width: 14,
-    height: 14,
+    width: 22,
+    height: 22,
     borderRadius: '50%',
-    border: '1.5px dashed #bbb',
+    border: '1.5px dashed #d4d4df',
     cursor: 'pointer',
     flexShrink: 0,
-    fontSize: 10,
+    fontSize: 12,
     color: '#999',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    lineHeight: 1,
     background: 'transparent',
     padding: 0,
   },
-  hiddenInput: {
-    position: 'absolute',
-    width: 0,
-    height: 0,
-    opacity: 0,
-    pointerEvents: 'none',
-  },
-  confirmBtn: {
-    fontSize: 12,
-    color: '#22c55e',
-    cursor: 'pointer',
-    padding: '0 1px',
-    background: 'transparent',
-    border: 'none',
-    lineHeight: 1,
-    fontWeight: 700,
+  colorLabel: {
+    fontSize: 14,
+    color: '#333333',
+    fontWeight: 800,
+    marginLeft: 2,
     flexShrink: 0,
   },
-  cancelCustomBtn: {
-    fontSize: 12,
-    color: '#ef4444',
-    cursor: 'pointer',
-    padding: '0 1px',
-    background: 'transparent',
-    border: 'none',
-    lineHeight: 1,
-    fontWeight: 700,
-    flexShrink: 0,
-  },
-  colorLabel: { fontSize: 11, color: '#888', fontWeight: 600, marginLeft: 2, flexShrink: 0 },
   spacer: { flex: 1 },
   deleteBtn: {
-    fontSize: 16, color: '#ccc', cursor: 'pointer',
-    padding: '0 2px', lineHeight: 1, flexShrink: 0,
-    background: 'transparent', border: 'none',
+    fontSize: 18,
+    color: '#777790',
+    cursor: 'pointer',
+    padding: '0 2px',
+    lineHeight: 1,
+    flexShrink: 0,
+    background: 'transparent',
+    border: 'none',
   },
   deleteBtnConfirm: {
-    fontSize: 11, color: '#ef4444', cursor: 'pointer', fontWeight: 700,
-    padding: '2px 5px', lineHeight: 1, flexShrink: 0,
-    background: '#fff0f0', border: '1px solid #fca5a5', borderRadius: 4,
+    fontSize: 11,
+    color: '#ef4444',
+    cursor: 'pointer',
+    fontWeight: 800,
+    padding: '3px 6px',
+    lineHeight: 1,
+    flexShrink: 0,
+    background: '#fff0f0',
+    border: '1px solid #fca5a5',
+    borderRadius: 4,
   },
-  sourceText: {
-    fontSize: 11, color: '#999', fontStyle: 'italic', lineHeight: 1.5,
-    borderLeft: '2px solid #e8e8e8', paddingLeft: 8,
-    display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical',
-    overflow: 'hidden',
+  customPicker: {
+    display: 'grid',
+    gridTemplateColumns: '28px 92px auto 24px',
+    alignItems: 'center',
+    gap: 8,
+    padding: '9px 10px',
+    borderRadius: 7,
+    background: '#f7f7fb',
+    border: '1px solid #dedeee',
   },
-  memoArea: { minHeight: 28, cursor: 'text' },
-  memoText: { fontSize: 13, color: '#333', lineHeight: 1.5, wordBreak: 'break-word' },
-  memoPlaceholder: { fontSize: 13, color: '#bbb' },
-  editArea: { display: 'flex', flexDirection: 'column', gap: 6 },
-  textarea: {
-    resize: 'vertical',
-    border: '1px solid #e0e0e0',
-    borderRadius: 6,
-    padding: '6px 8px',
-    fontSize: 13,
+  colorInput: {
+    width: 28,
+    height: 28,
+    padding: 0,
+    border: 'none',
+    background: 'transparent',
+    cursor: 'pointer',
+  },
+  hexInput: {
+    width: 92,
+    height: 28,
+    border: '1px solid #cfcfe3',
+    borderRadius: 5,
+    padding: '0 8px',
+    color: '#111111',
+    fontSize: 12,
     fontFamily: 'inherit',
     outline: 'none',
-    minHeight: 68,
   },
-  editActions: { display: 'flex', justifyContent: 'flex-end', gap: 6 },
-  cancelBtn: {
-    padding: '4px 10px', borderRadius: 5,
-    background: '#f0f0f0', fontSize: 12, cursor: 'pointer',
+  hexInputInvalid: {
+    borderColor: '#c01048',
+    background: '#fff1f3',
+  },
+  applyColorBtn: {
+    height: 28,
+    padding: '0 10px',
     border: 'none',
+    borderRadius: 5,
+    background: '#070761',
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 900,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  cancelColorBtn: {
+    width: 24,
+    height: 24,
+    border: 'none',
+    borderRadius: 5,
+    background: 'transparent',
+    color: '#777790',
+    fontSize: 16,
+    fontWeight: 900,
+    cursor: 'pointer',
+    padding: 0,
+    lineHeight: '24px',
+  },
+  sourceText: {
+    margin: 0,
+    fontSize: 15,
+    color: '#9a9aa8',
+    lineHeight: '20px',
+    borderLeft: '2px solid #cfcfcf',
+    paddingLeft: 14,
+    display: '-webkit-box',
+    WebkitLineClamp: 3,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+  },
+  memoArea: {
+    minHeight: 34,
+    cursor: 'text',
+    border: 'none',
+    background: 'transparent',
+    padding: 0,
+    textAlign: 'left',
+  },
+  memoText: {
+    display: 'block',
+    fontSize: 15,
+    color: '#111111',
+    lineHeight: '20px',
+    wordBreak: 'break-word',
+    fontWeight: 650,
+  },
+  memoPlaceholder: {
+    display: 'block',
+    fontSize: 16,
+    color: '#111111',
+    fontWeight: 900,
+  },
+  editArea: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 6,
+  },
+  textarea: {
+    resize: 'vertical',
+    border: '1px solid #cfcfe3',
+    borderRadius: 5,
+    padding: '13px 14px',
+    fontSize: 15,
+    fontFamily: 'inherit',
+    outline: 'none',
+    minHeight: 126,
+    lineHeight: '20px',
+  },
+  editActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: 6,
+  },
+  draftActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: 6,
+  },
+  cancelBtn: {
+    padding: '8px 12px',
+    borderRadius: 5,
+    background: '#f1f1fb',
+    color: '#070761',
+    fontSize: 12,
+    cursor: 'pointer',
+    border: 'none',
+    fontWeight: 800,
   },
   saveBtn: {
-    padding: '4px 12px', borderRadius: 5,
-    background: '#1a1a1a', color: '#fff', fontSize: 12, cursor: 'pointer',
+    padding: '8px 14px',
+    borderRadius: 5,
+    background: '#070761',
+    color: '#fff',
+    fontSize: 12,
+    cursor: 'pointer',
     border: 'none',
+    fontWeight: 900,
   },
   chatBtn: {
-    width: '100%', padding: '6px 0', borderRadius: 6,
-    background: '#f0f0ff', color: '#6366f1',
-    fontSize: 12, fontWeight: 600, cursor: 'pointer',
-    border: '1px solid #e0e0ff',
+    width: '100%',
+    padding: '9px 0',
+    borderRadius: 5,
+    background: '#efeffa',
+    color: '#070761',
+    fontSize: 12,
+    fontWeight: 900,
+    cursor: 'pointer',
+    border: '1px solid #cfcfe3',
   },
 }

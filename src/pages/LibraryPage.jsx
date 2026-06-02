@@ -1,382 +1,278 @@
-import { useRef, useState, useMemo } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import useDocumentList from '../hooks/useDocumentList'
 import useDocumentUpload from '../hooks/useDocumentUpload'
 import useAuth from '../hooks/useAuth'
+import CoStudyLogo, { CoStudyMark } from '../components/Brand/CoStudyLogo'
+import './LibraryPage.css'
 
 const SORT_OPTIONS = [
-  { key: 'date',  label: '최신순' },
-  { key: 'name',  label: '이름순' },
+  { key: 'date', label: '최신순' },
+  { key: 'name', label: '이름순' },
   { key: 'pages', label: '페이지순' },
 ]
 
+function formatLastOpened(uploadedAt) {
+  if (!uploadedAt) return '최근 열람 기록 없음'
+  const date = new Date(uploadedAt)
+  if (Number.isNaN(date.getTime())) return '최근 열람 기록 없음'
+
+  const days = Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000))
+  if (days <= 0) return '오늘 마지막 열람'
+  if (days === 1) return '1일 전에 마지막 열람'
+  return `${days}일 전에 마지막 열람`
+}
+
+function SearchIcon() {
+  return (
+    <svg className="library-search-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M10.8 18.1a7.3 7.3 0 1 1 0-14.6 7.3 7.3 0 0 1 0 14.6Zm5.2-2.1 4.5 4.5" />
+    </svg>
+  )
+}
+
+function FolderCard({ name, count, active, onClick }) {
+  return (
+    <button
+      type="button"
+      className={`library-card library-folder-card ${active ? 'is-mint' : ''}`}
+      onClick={onClick}
+    >
+      <span className="library-folder-line" />
+      <span className="library-card-title">{name || '폴더 이름'}</span>
+      <span className="library-card-meta">{count}개의 파일</span>
+      <span className="library-card-subtle">1일 전에 마지막 열람</span>
+    </button>
+  )
+}
+
+function FileCard({ doc, accent, onOpen, onStartFolderEdit, editingFolder, onFolderChange, onFolderCommit, onFolderCancel, onDelete }) {
+  return (
+    <article className={`library-card library-file-card ${accent === 'mint' ? 'is-mint' : ''}`} onClick={onOpen}>
+      <div className="library-preview-box">미리보기 화면</div>
+      <h3 className="library-card-title" title={doc.name}>{doc.name || '파일 이름'}</h3>
+      <p className="library-card-subtle">{formatLastOpened(doc.uploadedAt)}</p>
+
+      <div className="library-card-actions" onClick={(event) => event.stopPropagation()}>
+        {editingFolder?.docId === doc.docId ? (
+          <input
+            className="library-folder-input"
+            autoFocus
+            value={editingFolder.value}
+            placeholder="폴더 이름"
+            onChange={(event) => onFolderChange(event.target.value)}
+            onBlur={onFolderCommit}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') onFolderCommit()
+              if (event.key === 'Escape') onFolderCancel()
+            }}
+          />
+        ) : (
+          <button type="button" className="library-inline-action" onClick={onStartFolderEdit}>
+            {doc.folder ? doc.folder : '폴더 지정'}
+          </button>
+        )}
+        <button type="button" className="library-inline-action is-danger" onClick={onDelete}>
+          삭제
+        </button>
+      </div>
+    </article>
+  )
+}
+
 export default function LibraryPage() {
-  const navigate              = useNavigate()
+  const navigate = useNavigate()
   const { documents, loading, remove, moveToFolder, deleteFolder } = useDocumentList()
-  const { upload, progress, uploading }              = useDocumentUpload()
-  const { user, signOut }                            = useAuth()
+  const { upload, progress, uploading } = useDocumentUpload()
+  const { user, signOut } = useAuth()
   const fileInputRef = useRef(null)
 
-  const [sortBy,       setSortBy]       = useState('date')
-  const [activeFolder, setActiveFolder] = useState(null)  // null = 전체
-  const [editingFolder, setEditingFolder] = useState(null) // { docId, value }
+  const [sortBy, setSortBy] = useState('date')
+  const [query, setQuery] = useState('')
+  const [activeFolder, setActiveFolder] = useState(null)
+  const [editingFolder, setEditingFolder] = useState(null)
 
-  async function handleFileChange(e) {
-    const file = e.target.files[0]
+  const folders = useMemo(() => {
+    const map = new Map()
+    documents.forEach((doc) => {
+      if (!doc.folder) return
+      map.set(doc.folder, (map.get(doc.folder) || 0) + 1)
+    })
+    return [...map.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+  }, [documents])
+
+  const visibleDocs = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    let list = activeFolder
+      ? documents.filter((doc) => doc.folder === activeFolder)
+      : documents.filter((doc) => !doc.folder)
+
+    if (normalizedQuery) {
+      list = list.filter((doc) =>
+        [doc.name, doc.folder].filter(Boolean).some((value) => value.toLowerCase().includes(normalizedQuery))
+      )
+    }
+    if (sortBy === 'name') list = [...list].sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+    if (sortBy === 'pages') list = [...list].sort((a, b) => (b.pageCount || 0) - (a.pageCount || 0))
+    return list
+  }, [documents, sortBy, activeFolder, query])
+
+  async function handleFileChange(event) {
+    const file = event.target.files[0]
     if (!file) return
-    e.target.value = ''
+    event.target.value = ''
     const meta = await upload(file)
     if (meta) navigate(`/doc/${meta.docId}`)
   }
 
-  async function handleDelete(e, doc) {
-    e.stopPropagation()
-    if (!window.confirm(`"${doc.name}" 을 삭제할까요?`)) return
+  async function handleDelete(event, doc) {
+    event.stopPropagation()
+    if (!window.confirm(`"${doc.name}" 자료를 삭제할까요?`)) return
     await remove(doc.docId, doc.storagePath)
   }
 
-  // 폴더 목록 (unique, null 제외)
-  const folders = useMemo(
-    () => [...new Set(documents.map((d) => d.folder).filter(Boolean))].sort(),
-    [documents]
-  )
-
-  // 정렬 + 폴더 필터
-  const visibleDocs = useMemo(() => {
-    let list = activeFolder
-      ? documents.filter((d) => d.folder === activeFolder)
-      : documents
-    if (sortBy === 'name')  list = [...list].sort((a, b) => a.name.localeCompare(b.name, 'ko'))
-    if (sortBy === 'pages') list = [...list].sort((a, b) => (b.pageCount || 0) - (a.pageCount || 0))
-    // 'date'는 Firestore가 uploadedAt desc로 이미 정렬
-    return list
-  }, [documents, sortBy, activeFolder])
-
-  function startFolderEdit(e, doc) {
-    e.stopPropagation()
+  function startFolderEdit(event, doc) {
+    event.stopPropagation()
     setEditingFolder({ docId: doc.docId, value: doc.folder || '' })
   }
 
-  async function commitFolderEdit(docId) {
+  async function commitFolderEdit() {
     if (!editingFolder) return
-    const val = editingFolder.value.trim()
-    await moveToFolder(docId, val || null)
+    await moveToFolder(editingFolder.docId, editingFolder.value.trim() || null)
     setEditingFolder(null)
   }
 
+  async function handleDeleteFolder(folderName) {
+    if (!window.confirm(`"${folderName}" 폴더를 비울까요?\n문서는 유지되고 폴더 분류만 해제됩니다.`)) return
+    if (activeFolder === folderName) setActiveFolder(null)
+    await deleteFolder(folderName)
+  }
+
   return (
-    <div style={styles.root}>
-      {/* 헤더 */}
-      <div style={styles.header}>
-        <div style={styles.headerLeft}>
-          <h1 style={styles.title}>내 자료</h1>
-          {user && (
-            <span style={styles.userLabel}>{user.displayName || user.email}</span>
-          )}
+    <main className="library-shell">
+      <aside className="library-sidebar">
+        <div className="library-brand">
+          <CoStudyLogo className="library-logo" />
+          <button type="button" className="library-sidebar-toggle" aria-label="사이드바 접기">
+            <span />
+          </button>
         </div>
-        <div style={styles.headerRight}>
-          {/* 정렬 */}
-          <div style={styles.sortRow}>
-            {SORT_OPTIONS.map((opt) => (
-              <button
-                key={opt.key}
-                style={{ ...styles.sortBtn, ...(sortBy === opt.key ? styles.sortBtnActive : {}) }}
-                onClick={() => setSortBy(opt.key)}
-              >
-                {opt.label}
-              </button>
-            ))}
+
+        <div className="library-account">
+          <CoStudyMark className="library-avatar" title="Co-Study profile" />
+          <div className="library-account-copy">
+            <strong>{user?.displayName || '코워커'}</strong>
+            <span>{user?.email || 'co-worker@email.com'}</span>
           </div>
-          <label style={styles.addBtn}>
-            {uploading ? `업로드 중... ${progress}%` : '+ 자료 추가'}
+          <button type="button" className="library-signout" onClick={signOut} aria-label="로그아웃" title="로그아웃">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 6H5v12h4M14 8l4 4-4 4M18 12H9" />
+            </svg>
+          </button>
+        </div>
+      </aside>
+
+      <section className="library-main">
+        <header className="library-header">
+          <h1>내 자료</h1>
+          <label className="library-upload-button">
+            {uploading ? `업로드 중 ${progress}%` : '+ 자료 추가'}
             <input
               ref={fileInputRef}
               type="file"
               accept=".pdf"
-              onChange={handleFileChange}
               disabled={uploading}
-              style={{ display: 'none' }}
+              onChange={handleFileChange}
             />
           </label>
-          <button style={styles.signOutBtn} onClick={signOut} title="로그아웃">↩</button>
-        </div>
-      </div>
+        </header>
 
-      {/* 업로드 progress bar */}
-      {uploading && (
-        <div style={styles.progressBar}>
-          <div style={{ ...styles.progressFill, width: `${progress}%` }} />
+        <div className="library-search-row">
+          <div className="library-search">
+            <SearchIcon />
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="검색하기"
+              aria-label="자료 검색"
+            />
+          </div>
         </div>
-      )}
 
-      {/* 폴더 필터 탭 */}
-      {folders.length > 0 && (
-        <div style={styles.folderTabs}>
-          <button
-            style={{ ...styles.folderTab, ...(activeFolder === null ? styles.folderTabActive : {}) }}
-            onClick={() => setActiveFolder(null)}
-          >
-            전체
-          </button>
-          {folders.map((f) => (
-            <div key={f} style={styles.folderTabWrap}>
-              <button
-                style={{ ...styles.folderTab, ...(activeFolder === f ? styles.folderTabActive : {}) }}
-                onClick={() => setActiveFolder(f)}
-              >
-                📁 {f}
-              </button>
-              <button
-                style={styles.folderDeleteBtn}
-                title="폴더 삭제"
-                onClick={async (e) => {
-                  e.stopPropagation()
-                  if (!window.confirm(`"${f}" 폴더를 삭제할까요?\n(문서는 유지되며 폴더 분류만 해제됩니다)`)) return
-                  if (activeFolder === f) setActiveFolder(null)
-                  await deleteFolder(f)
-                }}
-              >
-                ×
-              </button>
-            </div>
-          ))}
+        {uploading && (
+          <div className="library-upload-progress" aria-label={`업로드 진행률 ${progress}%`}>
+            <span style={{ width: `${progress}%` }} />
+          </div>
+        )}
+
+        <div className="library-controls">
+          {activeFolder ? (
+            <button type="button" className="library-folder-heading" onClick={() => setActiveFolder(null)}>
+              <span aria-hidden="true">‹</span>
+              {activeFolder}
+            </button>
+          ) : (
+            <span className="library-folder-heading-placeholder" />
+          )}
+          <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} aria-label="정렬">
+            {SORT_OPTIONS.map((option) => (
+              <option key={option.key} value={option.key}>{option.label}</option>
+            ))}
+          </select>
         </div>
-      )}
 
-      {/* 문서 목록 */}
-      {loading ? (
-        <div style={styles.center}><p style={styles.hint}>불러오는 중...</p></div>
-      ) : visibleDocs.length === 0 ? (
-        <div style={styles.center}>
-          <p style={styles.hint}>
-            {activeFolder ? `"${activeFolder}" 폴더가 비어있습니다` : '자료를 추가해 학습을 시작하세요'}
-          </p>
-        </div>
-      ) : (
-        <div style={styles.grid}>
-          {visibleDocs.map((doc) => (
-            <div
-              key={doc.docId}
-              style={styles.card}
-              onClick={() => navigate(`/doc/${doc.docId}`)}
-            >
-              <div style={styles.cardIcon}>PDF</div>
+        {activeFolder && <div className="library-divider" />}
 
-              <div style={styles.cardBody}>
-                <p style={styles.cardName} title={doc.name}>{doc.name}</p>
-                <p style={styles.cardMeta}>
-                  {doc.pageCount > 0 ? `${doc.pageCount}p · ` : ''}
-                  {new Date(doc.uploadedAt).toLocaleDateString('ko-KR')}
-                </p>
+        {loading ? (
+          <div className="library-state">자료를 불러오는 중입니다.</div>
+        ) : (
+          <div className="library-grid">
+            {!activeFolder && folders.map((folder, index) => (
+              <div className="library-folder-wrap" key={folder.name}>
+                <FolderCard
+                  name={folder.name}
+                  count={folder.count}
+                  active={index === 2}
+                  onClick={() => setActiveFolder(folder.name)}
+                />
+                <button
+                  type="button"
+                  className="library-folder-delete"
+                  onClick={() => handleDeleteFolder(folder.name)}
+                  aria-label={`${folder.name} 폴더 비우기`}
+                >
+                  ×
+                </button>
               </div>
+            ))}
 
-              {/* 폴더 배지 / 편집 */}
-              <div style={styles.cardFooter} onClick={(e) => e.stopPropagation()}>
-                {editingFolder?.docId === doc.docId ? (
-                  <input
-                    autoFocus
-                    style={styles.folderInput}
-                    value={editingFolder.value}
-                    onChange={(e) => setEditingFolder((prev) => ({ ...prev, value: e.target.value }))}
-                    onBlur={() => commitFolderEdit(doc.docId)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitFolderEdit(doc.docId)
-                      if (e.key === 'Escape') setEditingFolder(null)
-                    }}
-                    placeholder="폴더명 입력"
-                    onClick={(e) => e.stopPropagation()}
-                  />
-                ) : (
-                  <button
-                    style={styles.folderBadge}
-                    onClick={(e) => startFolderEdit(e, doc)}
-                    title="폴더 지정"
-                  >
-                    {doc.folder ? `📁 ${doc.folder}` : '+ 폴더'}
-                  </button>
-                )}
-              </div>
+            {visibleDocs.map((doc, index) => (
+              <FileCard
+                key={doc.docId}
+                doc={doc}
+                accent={index % 2 === 1 ? 'mint' : 'indigo'}
+                onOpen={() => navigate(`/doc/${doc.docId}`)}
+                editingFolder={editingFolder}
+                onStartFolderEdit={(event) => startFolderEdit(event, doc)}
+                onFolderChange={(value) => setEditingFolder((prev) => ({ ...prev, value }))}
+                onFolderCommit={commitFolderEdit}
+                onFolderCancel={() => setEditingFolder(null)}
+                onDelete={(event) => handleDelete(event, doc)}
+              />
+            ))}
+          </div>
+        )}
 
-              <button
-                style={styles.deleteBtn}
-                onClick={(e) => handleDelete(e, doc)}
-                title="삭제"
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+        {!loading && folders.length === 0 && visibleDocs.length === 0 && (
+          <div className="library-empty">
+            <h2>아직 자료가 없습니다.</h2>
+            <p>PDF를 추가하면 Co-Study가 읽기, 메모, 질문 흐름을 이어갈 수 있게 도와줍니다.</p>
+            <button type="button" onClick={() => fileInputRef.current?.click()}>자료 추가하기</button>
+          </div>
+        )}
+      </section>
+    </main>
   )
-}
-
-const styles = {
-  root: {
-    minHeight: '100vh',
-    background: '#f5f5f5',
-    padding: '40px 48px',
-    boxSizing: 'border-box',
-  },
-  header: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 24,
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  headerLeft: { display: 'flex', alignItems: 'baseline', gap: 10 },
-  headerRight: { display: 'flex', alignItems: 'center', gap: 8 },
-  title: { fontSize: 24, fontWeight: 700, color: '#1a1a1a', margin: 0 },
-  userLabel: { fontSize: 12, color: '#aaa' },
-  sortRow: { display: 'flex', gap: 4 },
-  sortBtn: {
-    padding: '5px 10px',
-    borderRadius: 6,
-    fontSize: 12,
-    color: '#666',
-    background: '#fff',
-    border: '1px solid #e0e0e0',
-    cursor: 'pointer',
-  },
-  sortBtnActive: {
-    background: '#1a1a1a',
-    color: '#fff',
-    border: '1px solid #1a1a1a',
-    fontWeight: 700,
-  },
-  addBtn: {
-    padding: '8px 20px',
-    background: '#1a1a1a',
-    color: '#fff',
-    borderRadius: 8,
-    fontSize: 14,
-    fontWeight: 600,
-    cursor: 'pointer',
-  },
-  signOutBtn: {
-    padding: '8px 10px',
-    background: '#f0f0f0',
-    border: 'none',
-    borderRadius: 8,
-    fontSize: 16,
-    cursor: 'pointer',
-    color: '#666',
-  },
-  progressBar: {
-    height: 4, background: '#e0e0e0', borderRadius: 2, marginBottom: 24, overflow: 'hidden',
-  },
-  progressFill: {
-    height: '100%', background: '#6366f1', borderRadius: 2, transition: 'width 0.2s',
-  },
-  folderTabs: {
-    display: 'flex',
-    gap: 6,
-    marginBottom: 20,
-    flexWrap: 'wrap',
-  },
-  folderTabWrap: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 2,
-  },
-  folderTab: {
-    padding: '5px 12px',
-    borderRadius: 20,
-    fontSize: 12,
-    color: '#666',
-    background: '#fff',
-    border: '1px solid #e0e0e0',
-    cursor: 'pointer',
-  },
-  folderTabActive: {
-    background: '#6366f1',
-    color: '#fff',
-    border: '1px solid #6366f1',
-    fontWeight: 700,
-  },
-  folderDeleteBtn: {
-    width: 18,
-    height: 18,
-    borderRadius: '50%',
-    background: '#e0e0e0',
-    color: '#888',
-    fontSize: 13,
-    lineHeight: 1,
-    cursor: 'pointer',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    border: 'none',
-    padding: 0,
-    flexShrink: 0,
-  },
-  center: {
-    display: 'flex', justifyContent: 'center', alignItems: 'center', paddingTop: 120,
-  },
-  hint: { color: '#aaa', fontSize: 15 },
-  grid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
-    gap: 16,
-  },
-  card: {
-    background: '#fff',
-    borderRadius: 12,
-    padding: '16px',
-    cursor: 'pointer',
-    border: '1px solid #e8e8e8',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 10,
-    position: 'relative',
-    transition: 'box-shadow 0.15s',
-    boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
-  },
-  cardIcon: {
-    width: '100%',
-    height: 100,
-    background: '#f0f0ff',
-    borderRadius: 8,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontSize: 18,
-    fontWeight: 700,
-    color: '#6366f1',
-    letterSpacing: 1,
-  },
-  cardBody: { display: 'flex', flexDirection: 'column', gap: 4 },
-  cardName: {
-    fontSize: 13, fontWeight: 600, color: '#1a1a1a', margin: 0,
-    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-  },
-  cardMeta: { fontSize: 11, color: '#aaa', margin: 0 },
-  cardFooter: { marginTop: -4 },
-  folderBadge: {
-    fontSize: 11,
-    color: '#999',
-    background: 'none',
-    border: 'none',
-    cursor: 'pointer',
-    padding: 0,
-    textAlign: 'left',
-  },
-  folderInput: {
-    fontSize: 11,
-    padding: '2px 6px',
-    borderRadius: 4,
-    border: '1px solid #6366f1',
-    outline: 'none',
-    width: '100%',
-    boxSizing: 'border-box',
-  },
-  deleteBtn: {
-    position: 'absolute', top: 8, right: 10,
-    fontSize: 18, color: '#ccc', cursor: 'pointer',
-    lineHeight: 1, padding: '0 2px',
-    background: 'transparent', border: 'none',
-  },
 }

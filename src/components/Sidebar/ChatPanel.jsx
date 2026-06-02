@@ -1,47 +1,23 @@
-import { useState, useRef, useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
 import 'katex/dist/katex.min.css'
-import useAI, { buildRagSystemInstruction, NO_CHUNK_FALLBACK } from '../AI/useAI'
+import useAI from '../AI/useAI'
 import useChat from '../../hooks/useChat'
 import useDocumentIndex from '../../hooks/useDocumentIndex'
 import useLearningUnits from '../../hooks/useLearningUnits'
 import useLearningQuestionAnswers from '../../hooks/useLearningQuestionAnswers'
 import { getDisplayColor } from '../../lib/colorUtils'
 import useDocumentStore from '../../store/documentStore'
+import {
+  buildContextPackage,
+  classifyEvidenceStatus,
+  composePrompt,
+  formatSelectedContext,
+  validateAIResponse,
+} from '../../lib/ai/contextPipeline'
 
-
-/**
- * 허용되지 않은 페이지 번호 인용을 제거 (할루시네이션 사후 방어)
- * allowedPageNums: Set<number> (1-based)
- */
-function stripHallucinatedRefs(text, allowedPageNums) {
-  return text.replace(/\[p\.(\d+)\]/g, (match, num) =>
-    allowedPageNums.has(Number(num)) ? match : ''
-  )
-}
-
-/**
- * semantic 검색 결과 + 강제 포함 청크를 pageIndex 기준으로 병합·중복제거
- */
-function mergeChunks(semanticChunks, ...extras) {
-  const map = new Map(semanticChunks.map((c) => [c.pageIndex, c]))
-  for (const c of extras) {
-    if (c && !map.has(c.pageIndex)) map.set(c.pageIndex, c)
-  }
-  return [...map.values()].sort((a, b) => a.pageIndex - b.pageIndex)
-}
-
-/**
- * Chat 탭 패널
- * - contextAnnotations 배열의 텍스트를 맥락으로 대화 시작
- * - 맥락은 개별 × 버튼으로 제거 가능
- * - 설명 / 퀴즈 생성 빠른 액션 버튼 제공
- * - 대화 내용 Firestore 영구 저장
- *
- * @param {{ docId, contextAnnotations, onClearContext }} props
- */
 export default function ChatPanel({
   docId,
   contextAnnotations = [],
@@ -56,15 +32,27 @@ export default function ChatPanel({
 }) {
   const { messages, addMessage } = useChat(docId)
   const { chat } = useAI()
-  const { indexed, search, getChunkByPage } = useDocumentIndex(docId)
+  const { indexed, indexing, indexError, search, getChunkByPage } = useDocumentIndex(docId)
   const { getUnitForPage } = useLearningUnits(docId)
   const { getAnswer, saveAnswer } = useLearningQuestionAnswers(docId)
 
-  const [input, setInput]             = useState('')
+  const [input, setInput] = useState('')
   const [streamingText, setStreamingText] = useState('')
-  const [isStreaming, setIsStreaming]  = useState(false)
-  const [error, setError]             = useState(null)
+  const [isStreaming, setIsStreaming] = useState(false)
+  const [error, setError] = useState(null)
   const [suggestedOpen, setSuggestedOpen] = useState(() => localStorage.getItem('costudy:suggestedOpen') !== 'false')
+
+  useEffect(() => {
+    function handleFollowUpEvent(event) {
+      const prompt = String(event.detail?.prompt ?? '').trim()
+      if (!prompt) return
+      handleSend(prompt)
+    }
+
+    window.addEventListener('costudy:chat-follow-up', handleFollowUpEvent)
+    return () => window.removeEventListener('costudy:chat-follow-up', handleFollowUpEvent)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [openQuestion, setOpenQuestion] = useState(null)
   const [draftAnswers, setDraftAnswers] = useState({})
   const [messageFilter, setMessageFilter] = useState('all')
@@ -72,101 +60,20 @@ export default function ChatPanel({
   const handledPromptRef = useRef(null)
   const suggestedRef = useRef(null)
 
+  const noDoc = !docId
+  const hasContext = contextAnnotations.length > 0
+  const currentUnit = currentPage > 0 ? getUnitForPage(currentPage - 1) : null
+  const suggestedQuestions = []
+  const visibleMessages = messages.filter((message) => {
+    if (messageFilter === 'all') return true
+    if (messageFilter === 'context') return Boolean(message.contextText)
+    if (messageFilter === 'followup') return /어떻게|추가|이어|그러면|그럼/.test(message.content ?? '')
+    return !message.contextText
+  })
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, streamingText])
-
-  async function handleSend(overrideText) {
-    const text = (overrideText ?? input).trim()
-    if (!text || !docId || isStreaming) return
-
-    setInput('')
-    setError(null)
-    setIsStreaming(true)
-    setStreamingText('')
-
-    try {
-      // ── RAG: 의미 검색 ────────────────────────────────────────────
-      const topChunks = await search(text)
-
-      // ── 강제 포함: 현재 보고 있는 페이지 ─────────────────────────
-      const currentPageChunk = currentPage > 0 ? getChunkByPage(currentPage - 1) : null
-
-      // ── 강제 포함: region 맥락의 해당 페이지 (이미지 내 텍스트 보강) ─
-      const regionPageChunks = contextAnnotations
-        .filter((a) => a.type === 'region' && a.pageIndex != null)
-        .map((a) => getChunkByPage(a.pageIndex))
-        .filter(Boolean)
-
-      // 병합 + 중복제거 (pageIndex 기준)
-      const finalChunks = mergeChunks(topChunks, currentPageChunk, ...regionPageChunks)
-
-      const availablePages = finalChunks.map((c) => `p.${c.pageIndex + 1}`).join(', ')
-      const allowedPageNums = new Set(finalChunks.map((c) => c.pageIndex + 1))
-
-      // user message에는 데이터만 — 인용 규칙은 systemInstruction에서 강제
-      const ragBlock = finalChunks.length > 0
-        ? `[문서 컨텍스트 — ${availablePages}]\n` +
-          finalChunks.map((c) => `(p.${c.pageIndex + 1}) ${c.text}`).join('\n') +
-          '\n---\n'
-        : ''
-
-      const systemInstruction = finalChunks.length > 0
-        ? buildRagSystemInstruction(availablePages)
-        : indexed
-          ? NO_CHUNK_FALLBACK
-          : null
-
-      // ── 하이라이트 맥락 ──────────────────────────────────────────
-      const hasContext = contextAnnotations.length > 0
-      const contextText = hasContext
-        ? contextAnnotations.map((a, i) => {
-            const isRegion = a.type === 'region'
-            const label = isRegion ? '[영역 선택 (이미지 첨부)]' : `"${a.text}"`
-            const memo  = a.content ? `\n   [메모] ${a.content}` : ''
-            return `${i + 1}. ${label}${memo}`
-          }).join('\n')
-        : null
-      const fullPrompt = contextText
-        ? `${ragBlock}[선택 맥락:\n${contextText}]\n\n${text}`
-        : `${ragBlock}${text}`
-
-      // 이미지 파트 수집 (영역 선택으로 보낸 이미지)
-      const imageParts = contextAnnotations
-        .filter((a) => a.imageData)
-        .map((a) => ({ inlineData: { data: a.imageData, mimeType: 'image/png' } }))
-
-      await addMessage('user', text, contextText)
-
-      const history = messages.map((m) => ({ role: m.role, content: m.content }))
-
-      await chat(
-        history,
-        fullPrompt,
-        (_, full) => setStreamingText(full),
-        async (full) => {
-          setStreamingText('')
-          setIsStreaming(false)
-          // 허용되지 않은 페이지 번호 참조 제거 후 저장
-          const cleanFull = allowedPageNums.size > 0
-            ? stripHallucinatedRefs(full, allowedPageNums)
-            : full
-          await addMessage('assistant', cleanFull, contextText)
-        },
-        (errMsg) => {
-          setError(errMsg)
-          setIsStreaming(false)
-          setStreamingText('')
-        },
-        imageParts,
-        systemInstruction,
-      )
-    } catch (err) {
-      setError(err.message ?? '오류가 발생했습니다')
-      setIsStreaming(false)
-      setStreamingText('')
-    }
-  }
 
   useEffect(() => {
     if (!pendingPrompt?.text) return
@@ -185,11 +92,80 @@ export default function ChatPanel({
     })
   }, [focusSuggestedTick])
 
+  async function handleSend(overrideText) {
+    const text = (overrideText ?? input).trim()
+    if (!text || !docId || isStreaming) return
+
+    setInput('')
+    setError(null)
+    setIsStreaming(true)
+    setStreamingText('')
+
+    try {
+      const topChunks = await search(text)
+      const currentPageChunk = currentPage > 0 ? getChunkByPage(currentPage - 1) : null
+      const contextPackage = buildContextPackage({
+        userText: text,
+        intent: 'chat',
+        semanticChunks: indexed ? topChunks : [],
+        selectedContexts: contextAnnotations,
+        currentPageChunk,
+        getChunkByPage,
+      })
+      const contextText = formatSelectedContext(contextAnnotations)
+      const { fullPrompt, systemInstruction, allowedPageNums } = composePrompt({
+        userText: text,
+        selectedContexts: contextAnnotations,
+        contextPackage,
+      })
+
+      const imageParts = contextAnnotations
+        .filter((annotation) => annotation.imageData)
+        .map((annotation) => ({ inlineData: { data: annotation.imageData, mimeType: 'image/png' } }))
+
+      await addMessage('user', text, contextText)
+
+      const history = messages.map((message) => ({ role: message.role, content: message.content }))
+      await chat(
+        history,
+        fullPrompt,
+        (_, full) => setStreamingText(full),
+        async (full) => {
+          setStreamingText('')
+          setIsStreaming(false)
+          const checked = validateAIResponse(full, allowedPageNums, {
+            hasEvidence: contextPackage.hasEvidence,
+          })
+          const evidenceStatus = classifyEvidenceStatus(checked, contextPackage)
+          if (checked.warnings.length > 0 && import.meta.env.DEV) {
+            console.warn('[ChatPanel] AI response validation warnings', {
+              warnings: checked.warnings,
+              evidenceStatus,
+              allowedPages: [...allowedPageNums],
+            })
+          }
+          await addMessage('assistant', checked.text, contextText, { evidenceStatus })
+        },
+        (errMsg) => {
+          setError(errMsg)
+          setIsStreaming(false)
+          setStreamingText('')
+        },
+        imageParts,
+        systemInstruction,
+      )
+    } catch (err) {
+      setError(err.message ?? '오류가 발생했습니다.')
+      setIsStreaming(false)
+      setStreamingText('')
+    }
+  }
+
   async function handleQuickAction(key) {
     if (contextAnnotations.length === 0) return
     const prompts = {
-      explain: '이 내용을 쉽게 설명해줘',
-      quiz:    '이 내용으로 퀴즈를 만들어줘',
+      explain: '이 내용을 쉽게 설명해 줘.',
+      quiz: '이 내용으로 퀴즈를 만들어 줘.',
     }
     await handleSend(prompts[key])
   }
@@ -224,91 +200,40 @@ export default function ChatPanel({
     useDocumentStore.getState().setViewMode('page')
   }
 
-  const noDoc = !docId
-  const hasContext = contextAnnotations.length > 0
-  const currentUnit = currentPage > 0 ? getUnitForPage(currentPage - 1) : null
-  const suggestedQuestions = currentUnit?.focusQuestions?.filter(Boolean).slice(0, 2) ?? []
-  const visibleMessages = messages.filter((message) => {
-    if (messageFilter === 'all') return true
-    if (messageFilter === 'context') return Boolean(message.contextText)
-    if (messageFilter === 'followup') return /왜|어떻게|좀 더|추가|이어|그럼|그러면/.test(message.content ?? '')
-    return !message.contextText
-  })
+  function clearAllContext() {
+    contextAnnotations.forEach((annotation) => onClearContext?.(annotation.id))
+  }
+
+  const contextPreview = hasContext ? getContextPreview(contextAnnotations) : null
 
   return (
     <div style={styles.panel}>
-      {/* 맥락 배너 */}
-      {hasContext ? (
-        <div style={styles.contextBanner}>
-          <div style={styles.contextTop}>
-            <span style={styles.contextLabel}>선택 맥락 {contextAnnotations.length}개</span>
-          </div>
-          {/* 맥락 칩 목록 */}
-          <div style={styles.chipList}>
-            {contextAnnotations.map((ann) => (
-              <div key={ann.id} style={styles.chip}>
-                <span style={{ ...styles.colorDot, background: getDisplayColor(ann.color) }} />
-                {ann.imageData && (
-                  <img
-                    src={`data:image/png;base64,${ann.imageData}`}
-                    style={styles.chipThumb}
-                    alt="영역 이미지"
-                  />
-                )}
-                <span style={styles.chipText}>
-                  {ann.type === 'region'
-                    ? ann.imageData ? '[이미지 영역]' : ann.content ? `[영역] ${ann.content}` : '[영역 선택 — 메모 없음]'
-                    : `"${ann.text}"${ann.content ? ` / ${ann.content}` : ''}`}
-                </span>
-                <button
-                  style={styles.chipClose}
-                  onClick={() => onClearContext?.(ann.id)}
-                  title="맥락 제거"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-          {/* 빠른 액션 */}
-          <div style={styles.quickActions}>
-            <button
-              style={styles.quickBtn}
-              onClick={() => handleQuickAction('explain')}
-              disabled={isStreaming}
-            >
-              설명
-            </button>
-            <button
-              style={styles.quickBtn}
-              onClick={() => handleQuickAction('quiz')}
-              disabled={isStreaming}
-            >
-              퀴즈 생성
-            </button>
-            <span style={styles.quickHint}>또는 아래 입력창에서 직접 질문</span>
-          </div>
-        </div>
-      ) : (
-        <div style={styles.emptyContext}>
-          <p style={styles.emptyContextHint}>
-            아래 입력창에서 바로 질문하거나,<br />하이라이트 → '맥락 추가'로 맥락 기반 대화를 시작하세요
-          </p>
+      <div style={styles.emptyContext} />
+
+      {!noDoc && (indexing || indexError || !indexed) && (
+        <div style={{ ...styles.indexNotice, ...(indexError ? styles.indexNoticeError : {}) }}>
+          {indexError
+            ? '문서 색인에 실패했습니다. 선택 맥락이나 일반 지식에 대해서만 답할 수 있습니다.'
+            : indexing
+              ? '문서 색인 중입니다. 완료 전에는 근거 검색이 제한될 수 있습니다.'
+              : '문서 근거를 확인하는 중입니다.'}
         </div>
       )}
 
       {suggestedQuestions.length > 0 && (
-        <div style={styles.suggestedQuestions} ref={suggestedRef}>
+        <section style={styles.suggestedQuestions} ref={suggestedRef}>
           <div style={styles.suggestedHeader}>
             <span style={styles.suggestedLabel}>추천 질문</span>
-            <span style={styles.suggestedCount}>
-              {suggestedQuestions.filter((q) => !getAnswer(currentUnit?.id, q)?.status).length}개 남음
-            </span>
-            <button type="button" style={styles.gateHeaderBtn} onClick={onToggleQuestionGate}>
-              제한 {questionGateEnabled ? 'ON' : 'OFF'}
+            <button
+              type="button"
+              style={styles.gateHeaderBtn}
+              onClick={onToggleQuestionGate}
+              title={`페이지 이동 제한 ${questionGateEnabled ? 'ON' : 'OFF'}`}
+            >
+              {questionGateEnabled ? 'ON' : 'OFF'}
             </button>
             <button type="button" style={styles.suggestedToggle} onClick={toggleSuggestedOpen}>
-              {suggestedOpen ? '접기' : '펼치기'}
+              {suggestedOpen ? '⌄' : '›'}
             </button>
           </div>
           {suggestedOpen && (
@@ -319,39 +244,16 @@ export default function ChatPanel({
                 const draft = draftAnswers[question] ?? saved?.answer ?? ''
                 const resolved = saved?.status === 'answered' || saved?.status === 'skipped'
                 return (
-                  <div key={question} style={styles.suggestedCard}>
-                    <div style={styles.questionRow}>
-                      <button
-                        type="button"
-                        style={styles.questionTextBtn}
-                        onClick={() => setOpenQuestion(isOpen ? null : question)}
-                        disabled={isStreaming || noDoc}
-                        title="답변 작성 열기"
-                      >
-                        {question}
-                      </button>
-                      <button
-                        type="button"
-                        style={styles.skipInlineBtn}
-                        onClick={() => saveSuggestedAnswer(question, ' ', 'skipped')}
-                        disabled={isStreaming || saved?.status === 'skipped'}
-                      >
-                        Skip
-                      </button>
-                    </div>
-                    <div style={styles.questionMeta}>
-                      <span>{saved?.status === 'skipped' ? '건너뜀' : resolved ? '저장됨' : '답변 전'}</span>
-                      {resolved && (
-                        <button
-                          type="button"
-                          style={styles.checkInlineBtn}
-                          disabled={isStreaming}
-                          onClick={() => checkSuggestedAnswer(question)}
-                        >
-                          AI로 확인
-                        </button>
-                      )}
-                    </div>
+                  <div key={question} style={isOpen ? styles.suggestedCardOpen : styles.suggestedCard}>
+                    <button
+                      type="button"
+                      style={styles.questionTextBtn}
+                      onClick={() => setOpenQuestion(isOpen ? null : question)}
+                      disabled={isStreaming || noDoc}
+                      title="답변 작성 열기"
+                    >
+                      {question}
+                    </button>
                     {isOpen && (
                       <div style={styles.answerBox}>
                         <textarea
@@ -359,10 +261,10 @@ export default function ChatPanel({
                           value={draft}
                           placeholder="내 답변을 먼저 적어보세요."
                           rows={3}
-                          onChange={(e) => setDraftAnswers((prev) => ({ ...prev, [question]: e.target.value }))}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' && !e.shiftKey) {
-                              e.preventDefault()
+                          onChange={(event) => setDraftAnswers((prev) => ({ ...prev, [question]: event.target.value }))}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' && !event.shiftKey) {
+                              event.preventDefault()
                               saveSuggestedAnswer(question, draft.trim(), 'answered')
                             }
                           }}
@@ -373,11 +275,19 @@ export default function ChatPanel({
                           </button>
                           <button
                             type="button"
-                            style={{ ...styles.answerBtn, opacity: resolved ? 1 : 0.45 }}
+                            style={styles.answerGhostBtn}
+                            onClick={() => saveSuggestedAnswer(question, ' ', 'skipped')}
+                            disabled={isStreaming || saved?.status === 'skipped'}
+                          >
+                            Skip
+                          </button>
+                          <button
+                            type="button"
+                            style={{ ...styles.answerGhostBtn, opacity: resolved ? 1 : 0.45 }}
                             disabled={!resolved || isStreaming}
                             onClick={() => checkSuggestedAnswer(question)}
                           >
-                            AI로 정답 확인
+                            AI로 확인
                           </button>
                         </div>
                       </div>
@@ -387,42 +297,43 @@ export default function ChatPanel({
               })}
             </div>
           )}
-        </div>
+        </section>
       )}
 
       <div style={styles.filterRow}>
-          {[
-            ['all', '전체'],
-            ['simple', '단순'],
-            ['followup', '꼬리'],
-            ['context', '맥락'],
-          ].map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              style={{ ...styles.filterBtn, ...(messageFilter === key ? styles.filterBtnActive : {}) }}
-              onClick={() => setMessageFilter(key)}
-            >
-              {label}
-            </button>
-          ))}
+        {[
+          ['all', '전체'],
+          ['simple', '단순'],
+          ['followup', '꼬리'],
+          ['context', '맥락'],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            style={{ ...styles.filterBtn, ...(messageFilter === key ? styles.filterBtnActive : {}) }}
+            onClick={() => setMessageFilter(key)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
-      {/* 메시지 목록 */}
       <div style={styles.messageList}>
         {noDoc && (
           <div style={styles.centerHint}>
-            <p style={styles.hintText}>PDF를 열면 채팅을 시작할 수 있습니다</p>
+            <p style={styles.hintText}>PDF를 열면 채팅을 시작할 수 있습니다.</p>
           </div>
         )}
-        {visibleMessages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} onPageJump={handlePageJump} />
+        {visibleMessages.map((message) => (
+          <MessageBubble key={message.id} message={message} onPageJump={handlePageJump} />
         ))}
         {isStreaming && streamingText && (
-          <div style={{ ...styles.bubble, ...styles.assistantBubble }}>
-            <div style={styles.bubbleText}>
-              <MarkdownContent onPageJump={handlePageJump}>{streamingText}</MarkdownContent>
-              <span style={styles.cursor}>▌</span>
+          <div style={{ ...styles.messageRow, justifyContent: 'flex-start' }}>
+            <div style={{ ...styles.bubble, ...styles.assistantBubble }}>
+              <div style={styles.assistantBubbleText}>
+                <MarkdownContent onPageJump={handlePageJump}>{streamingText}</MarkdownContent>
+                <span style={styles.cursor}>|</span>
+              </div>
             </div>
           </div>
         )}
@@ -430,18 +341,39 @@ export default function ChatPanel({
         <div ref={bottomRef} />
       </div>
 
-      {/* 입력창 */}
-      <div style={styles.inputArea}>
+      <div style={{ ...styles.inputArea, ...(hasContext ? styles.inputAreaWithContext : {}) }}>
+        {hasContext && (
+          <>
+            <div style={styles.composerContext}>
+              <span style={styles.composerAccent} />
+              <div style={styles.composerContextText}>
+                <strong style={styles.composerContextTitle}>{contextPreview.title}</strong>
+                <span style={styles.composerContextBody}>{contextPreview.body}</span>
+              </div>
+              <button
+                type="button"
+                style={styles.composerContextClose}
+                onClick={clearAllContext}
+                aria-label="선택 맥락 제거"
+                title="선택 맥락 제거"
+              >
+                ×
+              </button>
+            </div>
+            <div style={styles.composerDivider} />
+          </>
+        )}
+        <div style={styles.composerRow}>
         <textarea
           style={styles.input}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={noDoc ? 'PDF를 먼저 열어주세요' : hasContext ? '맥락 기반으로 질문하거나 자유롭게 대화하세요… (Enter: 전송)' : '질문을 입력하세요… (Enter: 전송, Shift+Enter: 줄바꿈)'}
+          onChange={(event) => setInput(event.target.value)}
+          placeholder={noDoc ? 'PDF를 먼저 열어주세요.' : hasContext ? 'ㄴ  꼬리 질문을 입력하세요.' : '질문을 입력하세요.'}
           disabled={noDoc || isStreaming}
-          rows={2}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
+          rows={1}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter' && !event.shiftKey) {
+              event.preventDefault()
               handleSend()
             }
           }}
@@ -449,57 +381,64 @@ export default function ChatPanel({
         <button
           style={{
             ...styles.sendBtn,
-            opacity: (noDoc || isStreaming || !input.trim()) ? 0.4 : 1,
+            opacity: (noDoc || isStreaming) ? 0.4 : 1,
           }}
           onClick={() => handleSend()}
           disabled={noDoc || isStreaming || !input.trim()}
         >
           전송
         </button>
+        </div>
       </div>
     </div>
   )
 }
 
-/**
- * [p.N] 또는 [p.N, p.M] 패턴을 ReactMarkdown이 처리할 수 있는
- * 링크 문법 [p.N](page://N)으로 변환
- */
+function getContextPreview(contextAnnotations) {
+  const first = contextAnnotations[0]
+  const titleBase = first?.type === 'region'
+    ? first.imageData ? '선택 이미지 영역' : '선택 영역'
+    : '선택 텍스트'
+  const title = contextAnnotations.length > 1
+    ? `${titleBase} 외 ${contextAnnotations.length - 1}개`
+    : titleBase
+  const body = first?.type === 'region'
+    ? first.content || first.text || '이미지 영역이 맥락으로 추가되었습니다.'
+    : first?.content || first?.text || '선택한 텍스트가 맥락으로 추가되었습니다.'
+  return { title, body }
+}
+
 function processSourceMarkers(text) {
-  return text.replace(/\[(?:p\.\s*\d+[\s,，、]*)+\]/g, (match) => {
-    const pages = [...match.matchAll(/\d+/g)].map((m) => m[0])
-    return pages.map((p) => `[p.${p}](#page-${p})`).join(' ')
+  return text.replace(/\[(?:p\.\s*\d+[\s,，、-]*)+\]/g, (match) => {
+    const pages = [...match.matchAll(/\d+/g)].map((item) => item[0])
+    return pages.map((page) => `[p.${page}](#page-${page})`).join(' ')
   })
 }
 
-function MarkdownContent({ children, onPageJump }) {
+function MarkdownContent({ children, onPageJump, followUpContext = '' }) {
   const processed = processSourceMarkers(children ?? '')
   return (
     <ReactMarkdown
       remarkPlugins={[remarkMath]}
       rehypePlugins={[rehypeKatex]}
       components={{
-        // <p> → <div>: pre/table 등 블록 요소 중첩 시 HTML 규격 위반 방지
-        p:      ({ children }) => <div style={{ margin: '0 0 6px', lineHeight: 1.6 }}>{children}</div>,
-        ul:     ({ children }) => <ul style={{ margin: '4px 0', paddingLeft: 18 }}>{children}</ul>,
-        ol:     ({ children }) => <ol style={{ margin: '4px 0', paddingLeft: 18 }}>{children}</ol>,
-        li:     ({ children }) => <li style={{ marginBottom: 2 }}>{children}</li>,
-        // pre: 코드 블록 래퍼
-        pre:    ({ children }) => (
+        p: ({ children: paragraphChildren }) => <div style={{ margin: '0 0 6px', lineHeight: 1.6 }}>{paragraphChildren}</div>,
+        ul: ({ children: listChildren }) => <ul style={{ margin: '4px 0', paddingLeft: 18 }}>{listChildren}</ul>,
+        ol: ({ children: listChildren }) => <ol style={{ margin: '4px 0', paddingLeft: 18 }}>{listChildren}</ol>,
+        li: ({ children: itemChildren }) => <li style={{ marginBottom: 2 }}>{itemChildren}</li>,
+        pre: ({ children: preChildren }) => (
           <pre style={{ background: 'rgba(0,0,0,0.06)', borderRadius: 6, padding: '8px 10px', overflowX: 'auto', fontSize: 12, margin: '4px 0', fontFamily: 'monospace' }}>
-            {children}
+            {preChildren}
           </pre>
         ),
-        // code: className 있으면 블록(pre 내부) → 스타일 리셋, 없으면 인라인
-        code:   ({ className, children }) =>
+        code: ({ className, children: codeChildren }) =>
           className
-            ? <code style={{ fontFamily: 'monospace' }}>{children}</code>
-            : <code style={{ background: 'rgba(0,0,0,0.08)', borderRadius: 3, padding: '1px 4px', fontSize: 12, fontFamily: 'monospace' }}>{children}</code>,
-        strong: ({ children }) => <strong style={{ fontWeight: 700 }}>{children}</strong>,
-        h1:     ({ children }) => <div style={{ fontWeight: 700, fontSize: 15, margin: '6px 0 4px' }}>{children}</div>,
-        h2:     ({ children }) => <div style={{ fontWeight: 700, fontSize: 14, margin: '6px 0 4px' }}>{children}</div>,
-        h3:     ({ children }) => <div style={{ fontWeight: 600, fontSize: 13, margin: '4px 0 2px' }}>{children}</div>,
-        // page:// 링크 → 페이지 이동 칩 버튼으로 렌더링
+            ? <code style={{ fontFamily: 'monospace' }}>{codeChildren}</code>
+            : <code style={{ background: 'rgba(0,0,0,0.08)', borderRadius: 3, padding: '1px 4px', fontSize: 12, fontFamily: 'monospace' }}>{codeChildren}</code>,
+        strong: ({ children: strongChildren }) => <strong style={{ fontWeight: 800 }}>{strongChildren}</strong>,
+        h1: ({ children: headingChildren }) => <div style={{ fontWeight: 800, fontSize: 18, margin: '6px 0 4px' }}>{headingChildren}</div>,
+        h2: ({ children: headingChildren }) => <div style={{ fontWeight: 800, fontSize: 17, margin: '6px 0 4px' }}>{headingChildren}</div>,
+        h3: ({ children: headingChildren }) => <div style={{ fontWeight: 700, fontSize: 16, margin: '4px 0 2px' }}>{headingChildren}</div>,
         a: ({ href, children: linkChildren }) => {
           const pageMatch = href?.match(/^#page-(\d+)$/)
           if (pageMatch) {
@@ -508,7 +447,24 @@ function MarkdownContent({ children, onPageJump }) {
               <button
                 style={styles.sourceChip}
                 onClick={() => onPageJump?.(page)}
-                title={`${page}페이지로 이동`}
+                onContextMenu={(event) => {
+                  event.preventDefault()
+                  const followUp = window.prompt(`p.${page} 근거로 이어서 물어볼 질문을 입력하세요.`)
+                  if (!followUp?.trim()) return
+                  const answerContext = String(followUpContext ?? '').trim().slice(0, 2400)
+                  window.dispatchEvent(new CustomEvent('costudy:chat-follow-up', {
+                    detail: {
+                      prompt: `아래 AI 답변과 p.${page} 근거를 맥락으로 후속 질문에 답해줘.
+
+[이전 AI 답변]
+${answerContext || '(이전 답변 없음)'}
+
+[후속 질문]
+${followUp.trim()}`,
+                    },
+                  }))
+                }}
+                title={`${page}페이지로 이동 · 우클릭: 후속 질문 추가`}
               >
                 {linkChildren}
               </button>
@@ -527,16 +483,40 @@ function MessageBubble({ message, onPageJump }) {
   const isUser = message.role === 'user'
 
   return (
-    <div style={{ ...styles.bubble, ...(isUser ? styles.userBubble : styles.assistantBubble) }}>
-      {message.contextText && isUser && (
-        <p style={styles.bubbleContext}>"{message.contextText}"</p>
-      )}
-      <div style={styles.bubbleText}>
-        {isUser
-          ? <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{message.content}</p>
-          : <MarkdownContent onPageJump={onPageJump}>{message.content}</MarkdownContent>
-        }
+    <div style={{ ...styles.messageRow, justifyContent: isUser ? 'flex-end' : 'flex-start' }}>
+      <div style={{ ...styles.bubble, ...(isUser ? styles.userBubble : styles.assistantBubble) }}>
+        {message.contextText && isUser && (
+          <blockquote style={styles.bubbleContext}>{message.contextText}</blockquote>
+        )}
+        {!isUser && message.evidenceStatus && (
+          <EvidenceBadge evidenceStatus={message.evidenceStatus} />
+        )}
+        <div style={isUser ? styles.userBubbleText : styles.assistantBubbleText}>
+          {isUser
+            ? <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{message.content}</p>
+            : <MarkdownContent onPageJump={onPageJump} followUpContext={message.content}>{message.content}</MarkdownContent>}
+        </div>
       </div>
+    </div>
+  )
+}
+
+function EvidenceBadge({ evidenceStatus }) {
+  const tone = styles.evidenceTones[evidenceStatus.status] ?? styles.evidenceTones.weak
+  const pages = evidenceStatus.pages ?? []
+  const pageText = pages.length > 0
+    ? ` · p.${pages[0]}${pages.length > 1 ? ` 외 ${pages.length - 1}개` : ''}`
+    : ''
+  const allPagesText = pages.length > 0
+    ? ` (${pages.map((page) => `p.${page}`).join(', ')})`
+    : ''
+  const warningText = evidenceStatus.warnings?.length
+    ? ` · 주의 ${evidenceStatus.warnings.length}`
+    : ''
+
+  return (
+    <div style={{ ...styles.evidenceBadge, ...tone }} title={`${evidenceStatus.description}${allPagesText}`}>
+      {evidenceStatus.label}{pageText}{warningText}
     </div>
   )
 }
@@ -544,200 +524,193 @@ function MessageBubble({ message, onPageJump }) {
 const styles = {
   panel: {
     flex: 1,
+    minHeight: 0,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
-    background: '#fafafa',
+    background: '#eeeef8',
   },
-  // 맥락 배너
   contextBanner: {
-    background: '#f0f0ff',
-    borderBottom: '1px solid #e0e0ff',
-    padding: '10px 14px',
+    background: '#ffffff',
+    borderBottom: '1px solid #eeeeee',
+    padding: '10px 16px',
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
   },
   contextTop: { display: 'flex', alignItems: 'center' },
-  contextLabel: { fontSize: 10, color: '#6366f1', fontWeight: 700, textTransform: 'uppercase' },
-  // 맥락 칩 목록
+  contextLabel: { fontSize: 12, color: '#070761', fontWeight: 800 },
   chipList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 4,
-    maxHeight: 100,
+    gap: 5,
+    maxHeight: 105,
     overflowY: 'auto',
   },
   chip: {
     display: 'flex',
     alignItems: 'center',
-    gap: 5,
-    background: '#fff',
-    border: '1px solid #e0e0ff',
-    borderRadius: 6,
-    padding: '4px 6px',
+    gap: 6,
+    background: '#eeeef8',
+    borderRadius: 5,
+    padding: '5px 7px',
   },
   colorDot: { width: 8, height: 8, borderRadius: '50%', flexShrink: 0 },
   chipText: {
-    fontSize: 11,
-    color: '#444',
-    lineHeight: 1.4,
+    minWidth: 0,
+    color: '#484848',
+    fontSize: 12,
+    lineHeight: '18px',
     flex: 1,
-    fontStyle: 'italic',
-    display: '-webkit-box',
-    WebkitLineClamp: 1,
-    WebkitBoxOrient: 'vertical',
     overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
   },
   chipThumb: {
-    width: 36, height: 24, objectFit: 'cover', borderRadius: 3,
-    border: '1px solid #e0e0ff', flexShrink: 0,
-  },
-  chipClose: { fontSize: 14, color: '#aaa', cursor: 'pointer', lineHeight: 1, padding: '0 2px', flexShrink: 0 },
-  quickActions: { display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  quickHint: { fontSize: 10, color: '#9ca3af', fontStyle: 'italic', marginLeft: 2 },
-  quickBtn: {
-    padding: '4px 12px', borderRadius: 5,
-    background: '#6366f1', color: '#fff',
-    fontSize: 12, fontWeight: 600, cursor: 'pointer',
-  },
-  // 맥락 없을 때 힌트
-  emptyContext: {
-    padding: '8px 14px',
-    background: '#f9f9f9',
-    borderBottom: '1px solid #f0f0f0',
+    width: 36,
+    height: 24,
+    objectFit: 'cover',
+    borderRadius: 3,
+    border: '1px solid rgba(7,7,97,0.16)',
     flexShrink: 0,
   },
-  emptyContextHint: { fontSize: 11, color: '#bbb', lineHeight: 1.6, textAlign: 'center' },
+  chipClose: {
+    width: 20,
+    height: 20,
+    padding: 0,
+    color: '#6e6e6e',
+    fontSize: 16,
+    lineHeight: '18px',
+    flexShrink: 0,
+  },
+  quickActions: { display: 'flex', alignItems: 'center', gap: 6 },
+  quickBtn: {
+    height: 28,
+    padding: '0 12px',
+    borderRadius: 5,
+    background: '#070761',
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 800,
+  },
+  emptyContext: {
+    height: 31,
+    flexShrink: 0,
+  },
+  indexNotice: {
+    flexShrink: 0,
+    padding: '7px 14px',
+    background: '#fffaeb',
+    borderBottom: '1px solid #fedf89',
+    color: '#93370d',
+    fontSize: 11,
+    lineHeight: '16px',
+    fontWeight: 700,
+  },
+  indexNoticeError: {
+    background: '#fff1f3',
+    borderBottomColor: '#fecdd6',
+    color: '#c01048',
+  },
   suggestedQuestions: {
-    padding: '8px 10px',
-    background: '#fff',
-    borderBottom: '1px solid #eeeeee',
+    height: 184,
+    padding: '13px 12px 13px 16px',
+    background: '#eeeef8',
+    borderBottom: '1px solid rgba(7,7,97,0.08)',
     flexShrink: 0,
     display: 'flex',
     flexDirection: 'column',
-    gap: 6,
-    maxHeight: 230,
+    gap: 9,
   },
   suggestedHeader: {
+    height: 20,
     display: 'flex',
     alignItems: 'center',
-    gap: 6,
+    gap: 8,
   },
   suggestedLabel: {
-    fontSize: 10,
-    color: '#6366f1',
-    fontWeight: 800,
-  },
-  suggestedCount: {
+    marginLeft: 5,
     marginRight: 'auto',
-    fontSize: 10,
-    color: '#9ca3af',
+    color: '#070761',
+    fontSize: 15,
+    lineHeight: '20px',
     fontWeight: 800,
   },
   suggestedToggle: {
-    border: '1px solid #e5e7eb',
-    background: '#fff',
-    color: '#4b5563',
-    borderRadius: 6,
-    padding: '4px 8px',
-    fontSize: 11,
-    fontWeight: 800,
-    cursor: 'pointer',
-    flexShrink: 0,
+    width: 20,
+    height: 20,
+    padding: 0,
+    color: '#000000',
+    fontSize: 15,
+    lineHeight: '20px',
+    fontWeight: 700,
   },
   gateHeaderBtn: {
-    border: '1px solid #e5e7eb',
-    background: '#f9fafb',
-    color: '#374151',
-    borderRadius: 6,
-    padding: '4px 7px',
+    height: 22,
+    padding: '0 7px',
+    borderRadius: 5,
+    background: '#ffffff',
+    color: '#070761',
     fontSize: 10,
+    lineHeight: '20px',
     fontWeight: 900,
-    cursor: 'pointer',
-    flexShrink: 0,
   },
   suggestedList: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 6,
-    overflowY: 'auto',
-    paddingRight: 2,
+    gap: 9,
+    overflow: 'hidden',
   },
   suggestedCard: {
+    height: 60,
+    borderRadius: 5,
+    background: '#ffffff',
+    padding: '10px 17px',
     display: 'flex',
     flexDirection: 'column',
-    gap: 5,
-    border: '1px solid #e0e0ff',
-    background: '#f8f8ff',
-    borderRadius: 7,
-    padding: 7,
+    justifyContent: 'center',
+    gap: 9,
   },
-  questionRow: {
-    display: 'grid',
-    gridTemplateColumns: 'minmax(0, 1fr) auto',
-    gap: 6,
-    alignItems: 'start',
+  suggestedCardOpen: {
+    minHeight: 60,
+    borderRadius: 5,
+    background: '#ffffff',
+    padding: '10px 17px',
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    gap: 9,
   },
   questionTextBtn: {
     minWidth: 0,
-    border: 'none',
-    background: 'transparent',
-    color: '#333',
     padding: 0,
-    fontSize: 12,
-    lineHeight: 1.4,
+    color: '#000000',
+    fontSize: 15,
+    lineHeight: '20px',
     textAlign: 'left',
-    cursor: 'pointer',
-    fontWeight: 700,
-  },
-  skipInlineBtn: {
-    border: '1px solid #e5e7eb',
-    background: '#fff',
-    color: '#4b5563',
-    borderRadius: 6,
-    padding: '4px 7px',
-    fontSize: 11,
-    fontWeight: 900,
-    cursor: 'pointer',
-    flexShrink: 0,
-  },
-  questionMeta: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    color: '#6b7280',
-    fontSize: 10,
-    fontWeight: 800,
-  },
-  checkInlineBtn: {
-    border: 'none',
-    background: 'transparent',
-    color: '#4f46e5',
-    padding: 0,
-    fontSize: 10,
-    fontWeight: 900,
-    cursor: 'pointer',
+    fontWeight: 500,
+    display: '-webkit-box',
+    WebkitLineClamp: 2,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
   },
   answerBox: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 6,
-    border: '1px solid #e5e7eb',
-    background: '#fff',
-    borderRadius: 7,
-    padding: 8,
+    gap: 7,
+    borderTop: '1px solid #eeeef8',
+    paddingTop: 8,
   },
   answerInput: {
     resize: 'vertical',
     minHeight: 62,
-    border: '1px solid #e5e7eb',
+    border: '1px solid rgba(7,7,97,0.18)',
     borderRadius: 7,
-    padding: '7px 8px',
+    padding: '7px 9px',
     fontSize: 12,
     fontFamily: 'inherit',
-    lineHeight: 1.45,
+    lineHeight: '18px',
     outline: 'none',
   },
   answerActions: {
@@ -746,135 +719,254 @@ const styles = {
     flexWrap: 'wrap',
   },
   answerBtn: {
-    border: 'none',
-    background: '#111827',
-    color: '#fff',
-    borderRadius: 7,
-    padding: '6px 8px',
+    height: 28,
+    borderRadius: 5,
+    padding: '0 10px',
+    background: '#070761',
+    color: '#ffffff',
     fontSize: 11,
     fontWeight: 800,
-    cursor: 'pointer',
   },
   answerGhostBtn: {
-    border: '1px solid #e5e7eb',
-    background: '#fff',
-    color: '#4b5563',
-    borderRadius: 7,
-    padding: '6px 8px',
+    height: 28,
+    borderRadius: 5,
+    padding: '0 10px',
+    background: '#eeeef8',
+    color: '#070761',
     fontSize: 11,
     fontWeight: 800,
-    cursor: 'pointer',
-  },
-  // 메시지 목록
-  messageList: {
-    flex: 1,
-    overflowY: 'auto',
-    padding: '10px 14px 12px',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 8,
   },
   filterRow: {
     flexShrink: 0,
     display: 'flex',
     gap: 5,
-    padding: '7px 10px',
-    background: '#fff',
+    padding: '7px 12px',
+    background: '#ffffff',
     borderBottom: '1px solid #eeeeee',
     overflowX: 'auto',
   },
   filterBtn: {
-    border: '1px solid #e5e7eb',
-    background: '#fff',
-    color: '#4b5563',
-    borderRadius: 7,
-    padding: '5px 9px',
+    border: '1px solid #e5e5ee',
+    background: '#ffffff',
+    color: '#6e6e6e',
+    borderRadius: 5,
+    padding: '4px 9px',
     fontSize: 11,
+    lineHeight: '16px',
     fontWeight: 800,
-    cursor: 'pointer',
     whiteSpace: 'nowrap',
   },
   filterBtnActive: {
-    borderColor: '#6366f1',
-    background: '#eef2ff',
-    color: '#312e81',
+    borderColor: '#070761',
+    background: '#eeeef8',
+    color: '#070761',
+  },
+  messageList: {
+    flex: 1,
+    minHeight: 0,
+    overflowY: 'auto',
+    padding: '12px 14px 16px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 12,
   },
   centerHint: {
-    flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 80,
+    flex: 1,
+    minHeight: 80,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  hintText: { fontSize: 13, color: '#bbb', textAlign: 'center' },
+  hintText: { color: '#6e6e6e', fontSize: 13, lineHeight: '20px', textAlign: 'center' },
+  messageRow: {
+    width: '100%',
+    display: 'flex',
+    flex: '0 0 auto',
+    alignItems: 'flex-start',
+    clear: 'both',
+  },
   bubble: {
-    maxWidth: '86%',
-    padding: '8px 12px',
-    borderRadius: 10,
+    width: 'fit-content',
+    maxWidth: '92%',
+    minHeight: 0,
+    padding: '10px 12px',
+    borderRadius: 12,
+    boxShadow: '0 2px 8px rgba(7,7,97,0.10)',
     wordBreak: 'break-word',
+    overflowWrap: 'anywhere',
+    position: 'static',
+    display: 'block',
+    flex: '0 1 auto',
   },
   userBubble: {
-    alignSelf: 'flex-end',
-    background: '#1a1a1a',
-    color: '#fff',
-    borderBottomRightRadius: 3,
+    background: '#070761',
+    color: '#ffffff',
+    borderBottomRightRadius: 4,
   },
   assistantBubble: {
-    alignSelf: 'flex-start',
-    background: '#fff',
-    border: '1px solid #e8e8e8',
-    color: '#1a1a1a',
-    borderBottomLeftRadius: 3,
+    background: '#ffffff',
+    color: '#000000',
+    border: '1px solid rgba(7,7,97,0.08)',
+    borderBottomLeftRadius: 4,
   },
   bubbleContext: {
-    fontSize: 10, color: 'rgba(255,255,255,0.45)', fontStyle: 'italic',
-    marginBottom: 4, borderLeft: '2px solid rgba(255,255,255,0.25)', paddingLeft: 6,
+    margin: '0 0 8px',
+    paddingLeft: 10,
+    borderLeft: '2px solid rgba(255,255,255,0.55)',
+    color: 'rgba(255,255,255,0.5)',
+    fontSize: 12,
+    lineHeight: '18px',
+    fontWeight: 400,
+    display: '-webkit-box',
+    WebkitLineClamp: 3,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
   },
-  bubbleText: { fontSize: 13, lineHeight: 1.6 },
-  cursor: { color: '#6366f1' },
-  error: { fontSize: 12, color: '#c00', padding: '4px 0', alignSelf: 'flex-start' },
-  // 인라인 출처 칩 (문단 끝에 삽입)
+  userBubbleText: {
+    color: '#ffffff',
+    fontSize: 13,
+    lineHeight: '20px',
+    fontWeight: 500,
+  },
+  assistantBubbleText: {
+    color: '#000000',
+    fontSize: 13,
+    lineHeight: '20px',
+    fontWeight: 500,
+  },
+  evidenceBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+    marginBottom: 6,
+    padding: '3px 7px',
+    borderRadius: 5,
+    fontSize: 10,
+    fontWeight: 800,
+    lineHeight: '14px',
+    whiteSpace: 'normal',
+    wordBreak: 'keep-all',
+  },
+  evidenceTones: {
+    grounded: { background: '#ecfdf3', color: '#067647', border: '1px solid #abefc6' },
+    partial: { background: '#eff6ff', color: '#175cd3', border: '1px solid #b2ddff' },
+    weak: { background: '#fffaeb', color: '#b54708', border: '1px solid #fedf89' },
+    none: { background: '#fff1f3', color: '#c01048', border: '1px solid #fecdd6' },
+  },
+  cursor: { color: '#070761' },
+  error: { fontSize: 12, color: '#c01048', padding: '4px 0', alignSelf: 'flex-start' },
   sourceChip: {
     display: 'inline-block',
-    padding: '1px 7px',
+    padding: '1px 6px',
     borderRadius: 4,
-    fontSize: 11,
-    fontWeight: 600,
-    background: '#ededff',
-    color: '#6366f1',
-    border: '1px solid #d4d4ff',
-    cursor: 'pointer',
-    lineHeight: 1.6,
+    fontSize: 10,
+    fontWeight: 700,
+    background: '#eeeef8',
+    color: '#070761',
+    border: '1px solid rgba(7,7,97,0.2)',
+    lineHeight: '16px',
     verticalAlign: 'middle',
-    marginLeft: 4,
+    margin: '0 2px',
   },
-  // 입력창
   inputArea: {
-    padding: '10px 12px',
-    background: '#fff',
-    borderTop: '1px solid #e8e8e8',
+    minHeight: 65,
+    padding: '10px 8px 10px 10px',
+    background: '#ffffff',
     display: 'flex',
-    gap: 8,
-    alignItems: 'flex-end',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    gap: 0,
+    alignItems: 'stretch',
     flexShrink: 0,
+  },
+  inputAreaWithContext: {
+    minHeight: 122,
+    padding: '15px 8px 10px 10px',
+    justifyContent: 'flex-start',
+  },
+  composerContext: {
+    minHeight: 40,
+    display: 'grid',
+    gridTemplateColumns: '5px minmax(0, 1fr) 28px',
+    alignItems: 'start',
+    gap: 13,
+    padding: '0 8px 10px 12px',
+  },
+  composerAccent: {
+    width: 5,
+    height: 28,
+    marginTop: 3,
+    background: 'rgba(7,7,97,0.5)',
+  },
+  composerContextText: {
+    minWidth: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 2,
+    color: '#000000',
+    fontSize: 11,
+    lineHeight: 1.5,
+  },
+  composerContextTitle: {
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    fontWeight: 600,
+  },
+  composerContextBody: {
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    fontWeight: 500,
+  },
+  composerContextClose: {
+    width: 28,
+    height: 28,
+    padding: 0,
+    color: '#6e6e6e',
+    fontSize: 28,
+    lineHeight: '24px',
+    fontWeight: 300,
+  },
+  composerDivider: {
+    height: 1,
+    margin: '0 8px 0 10px',
+    background: '#d7d7dc',
+  },
+  composerRow: {
+    minHeight: 44,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
   },
   input: {
     flex: 1,
+    minWidth: 0,
+    height: 44,
     resize: 'none',
-    border: '1px solid #e0e0e0',
-    borderRadius: 8,
-    padding: '7px 10px',
-    fontSize: 13,
+    border: 'none',
+    borderRadius: 0,
+    padding: '11px 10px',
+    color: '#111111',
+    fontSize: 14,
     fontFamily: 'inherit',
+    lineHeight: '20px',
     outline: 'none',
-    lineHeight: 1.5,
-    maxHeight: 120,
-    overflowY: 'auto',
+    overflow: 'hidden',
+    background: 'transparent',
   },
   sendBtn: {
-    padding: '7px 14px',
-    background: '#1a1a1a',
-    color: '#fff',
-    borderRadius: 8,
-    fontSize: 13,
-    fontWeight: 600,
-    cursor: 'pointer',
+    width: 59,
+    height: 44,
+    borderRadius: 10,
+    background: '#070761',
+    color: '#ffffff',
+    fontSize: 14,
+    lineHeight: '25px',
+    fontWeight: 800,
     flexShrink: 0,
   },
 }

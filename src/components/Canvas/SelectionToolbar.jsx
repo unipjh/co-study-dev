@@ -1,19 +1,74 @@
-import { useState, useEffect, useRef } from 'react'
-import { loadCustomColors, saveCustomColor, removeCustomColor, getDisplayColor } from '../../lib/colorUtils'
+import { useEffect, useRef, useState } from 'react'
+import {
+  loadCustomColors,
+  removeCustomColor,
+  saveCustomColor,
+  getDisplayColor,
+  getColorLabel,
+} from '../../lib/colorUtils'
 
 const PRESET_COLORS = [
-  { key: 'yellow', label: '중요',    bg: '#FFD700' },
-  { key: 'blue',   label: '이해필요', bg: '#6BB5FF' },
-  { key: 'green',  label: '암기',    bg: '#5CCC7F' },
+  { key: 'purple', label: '중요 표시', bg: '#070761' },
+  { key: 'blue', label: '정리 필요', bg: '#E9EDFF' },
+  { key: 'green', label: '이해됨', bg: '#D9FFF1' },
+  { key: 'mint', label: '다시 보기', bg: '#41FFA7' },
 ]
 
-/**
- * 텍스트 선택 시 떠오르는 팝업
- * phase 'color' — 색상 선택 (프리셋 + 커스텀) + AI ⚡ + 추가선택
- * phase 'memo'  — 메모 입력 (공란 허용)
- *
- * @param {{ viewportRect, onSave, onClose, onAITutor, pendingGroups, pendingCount, onAddSelection, onClearPending, onRemovePending, isRegion, onSendImageToChat }} props
- */
+function normalizeHex(value) {
+  const raw = String(value ?? '').trim()
+  const withHash = raw.startsWith('#') ? raw : `#${raw}`
+  return /^#[0-9a-fA-F]{6}$/.test(withHash) ? withHash.toUpperCase() : null
+}
+
+function HelpIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 3.25a8.75 8.75 0 1 0 0 17.5 8.75 8.75 0 0 0 0-17.5Zm0 15.25a1.05 1.05 0 1 1 0-2.1 1.05 1.05 0 0 1 0 2.1Zm.12-4.05c-.57 0-.94-.35-.94-.9 0-1.96 2.08-2.24 2.08-3.58 0-.69-.48-1.14-1.25-1.14-.79 0-1.31.43-1.52 1.26-.14.5-.49.74-.96.74-.6 0-1.01-.41-.9-1.05.24-1.55 1.55-2.74 3.45-2.74 2.01 0 3.4 1.17 3.4 2.92 0 2.22-2.29 2.55-2.43 3.73-.07.5-.4.76-.93.76Z"
+        fill="currentColor"
+      />
+    </svg>
+  )
+}
+
+function CustomColorPicker({ draft, onDraftChange, onApply, onCancel }) {
+  const normalized = normalizeHex(draft)
+
+  return (
+    <div style={styles.customPicker}>
+      <input
+        type="color"
+        value={normalized ?? '#FF5733'}
+        onChange={(event) => onDraftChange(event.target.value.toUpperCase())}
+        style={styles.colorInput}
+        aria-label="색상 선택"
+      />
+      <input
+        type="text"
+        value={draft}
+        onChange={(event) => onDraftChange(event.target.value)}
+        style={{
+          ...styles.hexInput,
+          ...(draft && !normalized ? styles.hexInputInvalid : {}),
+        }}
+        placeholder="#FF5733"
+        aria-label="색상 코드"
+      />
+      <button
+        type="button"
+        style={{ ...styles.applyColorBtn, opacity: normalized ? 1 : 0.45 }}
+        onClick={() => normalized && onApply(normalized)}
+        disabled={!normalized}
+      >
+        색상 지정
+      </button>
+      <button type="button" style={styles.cancelColorBtn} onClick={onCancel} aria-label="색상 지정 취소">
+        ×
+      </button>
+    </div>
+  )
+}
+
 export default function SelectionToolbar({
   viewportRect,
   onSave,
@@ -28,21 +83,18 @@ export default function SelectionToolbar({
   onSendImageToChat,
   onSendSelectionToChat,
 }) {
-  const [phase, setPhase]             = useState('color')
-  const [selectedColor, setSelectedColor] = useState(null)  // key string 또는 hex
-  const [memoText, setMemoText]       = useState('')
+  const [phase, setPhase] = useState('color')
+  const [selectedColor, setSelectedColor] = useState(null)
+  const [memoText, setMemoText] = useState('')
   const [customColors, setCustomColors] = useState(loadCustomColors)
-  const [stagedColor, setStagedColor] = useState(null)  // 커스텀 색상 확인 대기 중
-  const [dragPos, setDragPos]         = useState(null)  // {top, left} — 드래그 후 고정 위치
-  const ref       = useRef(null)
-  const inputRef  = useRef(null)  // <input type="color">
+  const [customPickerOpen, setCustomPickerOpen] = useState(false)
+  const [customDraft, setCustomDraft] = useState('#FF5733')
+  const [dragPos, setDragPos] = useState(null)
+  const ref = useRef(null)
 
   useEffect(() => {
-    function handlePointerDown(e) {
-      if (ref.current && !ref.current.contains(e.target)) {
-        // 외부 클릭: toolbar만 닫기, pendingGroups는 보존
-        onClose()
-      }
+    function handlePointerDown(event) {
+      if (ref.current && !ref.current.contains(event.target)) onClose()
     }
     document.addEventListener('pointerdown', handlePointerDown)
     return () => document.removeEventListener('pointerdown', handlePointerDown)
@@ -50,39 +102,37 @@ export default function SelectionToolbar({
 
   if (!viewportRect) return null
 
-  const selectedBg = selectedColor
-    ? getDisplayColor(selectedColor)
-    : null
-
-  const memoBoxHeight  = 140
-  const colorBarHeight = pendingCount > 0 ? 80 + pendingCount * 26 : 50
+  const selectedBg = selectedColor ? getDisplayColor(selectedColor) : null
+  const memoBoxHeight = 252
+  const colorBarHeight =
+    (pendingCount > 0 ? 94 + pendingCount * 28 : 58) +
+    (customPickerOpen ? 58 : 0) +
+    (selectedColor ? 42 : 0)
   const flipDown = viewportRect.top < (phase === 'memo' ? memoBoxHeight : colorBarHeight) + 8
-  const computedTop  = flipDown
+  const computedTop = flipDown
     ? viewportRect.bottom + 8
     : viewportRect.top - (phase === 'memo' ? memoBoxHeight : colorBarHeight) - 8
-  const estimatedWidth = phase === 'memo' ? 244 : 290
+  const estimatedWidth = phase === 'memo' ? 320 : 360
   const computedLeft = Math.min(
     window.innerWidth - estimatedWidth / 2 - 12,
     Math.max(estimatedWidth / 2 + 12, viewportRect.left + viewportRect.width / 2)
   )
 
-  const top  = dragPos ? dragPos.top  : computedTop
+  const top = dragPos ? dragPos.top : computedTop
   const left = dragPos ? dragPos.left : computedLeft
   const transform = dragPos ? 'none' : 'translateX(-50%)'
 
-  function startDrag(e) {
-    e.preventDefault()
-    const startX = e.clientX
-    const startY = e.clientY
-    const initLeft = dragPos
-      ? dragPos.left
-      : computedLeft - (ref.current?.offsetWidth ?? 0) / 2
-    const initTop  = dragPos ? dragPos.top : computedTop
+  function startDrag(event) {
+    event.preventDefault()
+    const startX = event.clientX
+    const startY = event.clientY
+    const initLeft = dragPos ? dragPos.left : computedLeft - (ref.current?.offsetWidth ?? 0) / 2
+    const initTop = dragPos ? dragPos.top : computedTop
 
-    function onMove(ev) {
+    function onMove(moveEvent) {
       setDragPos({
-        top:  initTop  + ev.clientY - startY,
-        left: initLeft + ev.clientX - startX,
+        top: initTop + moveEvent.clientY - startY,
+        left: initLeft + moveEvent.clientX - startX,
       })
     }
     function onUp() {
@@ -93,95 +143,64 @@ export default function SelectionToolbar({
     document.addEventListener('mouseup', onUp)
   }
 
-  function startTouchDrag(e) {
-    if (e.touches.length !== 1) return
-    const touch  = e.touches[0]
-    const startX = touch.clientX
-    const startY = touch.clientY
-    const initLeft = dragPos
-      ? dragPos.left
-      : computedLeft - (ref.current?.offsetWidth ?? 0) / 2
-    const initTop  = dragPos ? dragPos.top : computedTop
-
-    function onMove(ev) {
-      ev.preventDefault()
-      const t = ev.touches[0]
-      setDragPos({
-        top:  initTop  + t.clientY - startY,
-        left: initLeft + t.clientX - startX,
-      })
-    }
-    function onUp() {
-      document.removeEventListener('touchmove', onMove)
-      document.removeEventListener('touchend', onUp)
-    }
-    document.addEventListener('touchmove', onMove, { passive: false })
-    document.addEventListener('touchend', onUp)
-  }
-
-  function handleColorSelect(colorValue) {
-    setSelectedColor(colorValue)
-    setPhase('memo')
-  }
-
-  function handleCustomColorChange(e) {
-    setStagedColor(e.target.value)
-  }
-
-  function handleConfirmCustomColor() {
-    if (!stagedColor) return
-    const next = saveCustomColor(stagedColor, customColors)
+  function handleCustomApply(hex) {
+    const next = saveCustomColor(hex, customColors)
     setCustomColors(next)
-    handleColorSelect(stagedColor)
-    setStagedColor(null)
+    setSelectedColor(hex)
+    setCustomPickerOpen(false)
+    setCustomDraft(hex)
   }
 
-  function handleCancelCustomColor() {
-    setStagedColor(null)
-  }
-
-  function handleRemoveCustom(e, hex) {
-    e.stopPropagation()
+  function handleRemoveCustom(event, hex) {
+    event.stopPropagation()
     const next = removeCustomColor(hex, customColors)
     setCustomColors(next)
+    if (selectedColor === hex) setSelectedColor(null)
   }
 
-  function handleSave() {
+  function handleQuickSave() {
+    if (!selectedColor) return
+    onSave?.(selectedColor, '')
+  }
+
+  function handleMemoSave() {
     if (!selectedColor) return
     onSave?.(selectedColor, memoText.trim())
   }
 
-  function handleAddSelection() {
-    onAddSelection?.()
-    // toolbar는 DocumentCanvas에서 selection 클리어로 자연히 닫힘
+  function handleSendToChatOnly() {
+    if (isRegion) onSendImageToChat?.()
+    else onSendSelectionToChat?.()
+    onClose()
   }
 
   return (
     <div
       ref={ref}
       style={{ ...styles.container, top, left, transform }}
-      onMouseDown={(e) => e.preventDefault()}
+      onPointerDown={(event) => event.stopPropagation()}
     >
-      {/* 드래그 핸들 */}
-      <div style={styles.dragHandle} onMouseDown={startDrag} onTouchStart={startTouchDrag} title="드래그하여 이동">⠿</div>
+      <div style={styles.dragHandle} onMouseDown={startDrag} title="드래그하여 이동" />
 
       {phase === 'color' ? (
         <div style={styles.colorPhase}>
-          {/* 누적 선택 목록 (개별 제거 가능) */}
           {pendingCount > 0 && (
             <div style={styles.pendingSection}>
               <div style={styles.pendingHeader}>
-                <span style={styles.pendingBadge}>{pendingCount}개 누적됨</span>
-                <button style={styles.pendingClear} onClick={() => { onClearPending?.(); onClose() }} title="전체 초기화">모두 지우기</button>
+                <span style={styles.pendingBadge}>{pendingCount}개 누적</span>
+                <button type="button" style={styles.pendingClear} onClick={() => { onClearPending?.(); onClose() }}>
+                  모두 지우기
+                </button>
               </div>
-              {pendingGroups.map((g, i) => (
-                <div key={i} style={styles.pendingItem}>
-                  <span style={styles.pendingItemText} title={g.text}>
-                    {i + 1}. {g.text.length > 22 ? g.text.slice(0, 22) + '…' : g.text}
+              {pendingGroups.map((group, index) => (
+                <div key={`${group.text}_${index}`} style={styles.pendingItem}>
+                  <span style={styles.pendingItemText} title={group.text}>
+                    {index + 1}. {group.text.length > 22 ? `${group.text.slice(0, 22)}...` : group.text}
                   </span>
                   <button
+                    type="button"
                     style={styles.pendingItemRemove}
-                    onClick={() => onRemovePending?.(i)}
+                    onClick={() => onRemovePending?.(index)}
                     title="이 항목 제거"
                   >
                     ×
@@ -191,138 +210,137 @@ export default function SelectionToolbar({
             </div>
           )}
 
-          {/* 색상 버튼 행 */}
           <div style={styles.colorRow}>
-            {/* 프리셋 */}
-            {PRESET_COLORS.map((c) => (
+            {PRESET_COLORS.map((color) => (
               <button
-                key={c.key}
-                title={c.label}
-                style={{ ...styles.colorBtn, background: c.bg }}
-                onClick={() => handleColorSelect(c.key)}
+                key={color.key}
+                type="button"
+                title={color.label}
+                aria-label={color.label}
+                style={{
+                  ...styles.colorBtn,
+                  background: color.bg,
+                  ...(selectedColor === color.key ? styles.colorBtnSelected : {}),
+                }}
+                onClick={() => setSelectedColor(color.key)}
               />
             ))}
 
-            {/* 커스텀 색상 */}
             {customColors.map((hex) => (
               <div key={hex} style={styles.customBtnWrap}>
                 <button
+                  type="button"
                   title={hex}
-                  style={{ ...styles.colorBtn, background: hex }}
-                  onClick={() => handleColorSelect(hex)}
+                  aria-label={hex}
+                  style={{
+                    ...styles.colorBtn,
+                    background: hex,
+                    ...(selectedColor === hex ? styles.colorBtnSelected : {}),
+                  }}
+                  onClick={() => setSelectedColor(hex)}
                 />
                 <button
+                  type="button"
                   style={styles.removeBtn}
-                  onClick={(e) => handleRemoveCustom(e, hex)}
-                  title="제거"
+                  onClick={(event) => handleRemoveCustom(event, hex)}
+                  title="색상 제거"
                 >
                   ×
                 </button>
               </div>
             ))}
 
-            {/* + 커스텀 색 추가 */}
-            {!stagedColor && (
-              <button
-                title="색상 추가"
-                style={styles.addBtn}
-                onClick={() => { setStagedColor('#FF5733'); inputRef.current?.click() }}
-              >
-                +
-              </button>
-            )}
-            <input
-              ref={inputRef}
-              type="color"
-              style={styles.hiddenInput}
-              value={stagedColor ?? '#FF5733'}
-              onChange={handleCustomColorChange}
-            />
-
-            {/* 커스텀 색상 스테이징 확인 UI */}
-            {stagedColor && (
-              <>
-                <div
-                  style={{ ...styles.colorBtn, background: stagedColor, border: '2px solid rgba(255,255,255,0.7)', cursor: 'default' }}
-                  title={`선택 중: ${stagedColor}`}
-                  onClick={() => inputRef.current?.click()}
-                />
-                <button style={styles.confirmBtn} onClick={handleConfirmCustomColor} title="이 색상으로 확정">✓</button>
-                <button style={styles.cancelCustomBtn} onClick={handleCancelCustomColor} title="취소">✗</button>
-              </>
-            )}
+            <button
+              type="button"
+              title="색상 추가"
+              style={styles.addBtn}
+              onClick={() => {
+                setCustomDraft(selectedColor?.startsWith?.('#') ? selectedColor : '#FF5733')
+                setCustomPickerOpen((value) => !value)
+              }}
+            >
+              +
+            </button>
 
             <span style={styles.divider} />
 
-            {!isRegion && (
-              <button
-                title="선택 텍스트를 저장하지 않고 Chat 맥락에 추가"
-                style={{ ...styles.chatContextBtn, display: 'none' }}
-                onClick={() => { onSendSelectionToChat?.(); onClose() }}
-              >
-                Chat
-              </button>
-            )}
-
-            {/* AI 즉시 설명 */}
             <button
-              title="AI 즉시 설명"
-              style={{ ...styles.aiBtn, display: 'none' }}
-              onClick={() => { onAITutor?.(); onClose() }}
+              type="button"
+              title={isRegion ? '이미지를 Chat으로 보내기' : '선택 텍스트를 저장하지 않고 Chat 맥락에 추가'}
+              style={isRegion ? styles.imgChatBtn : styles.chatContextBtn}
+              onClick={handleSendToChatOnly}
             >
-              💡
+              Chat
             </button>
 
-            {/* 영역 이미지 → Chat */}
-            {isRegion && onSendImageToChat && (
-              <button
-                title="이미지로 Chat 전송"
-                style={styles.imgChatBtn}
-                onClick={() => { onSendImageToChat?.() }}
-              >
-                📷
-              </button>
-            )}
+            <button
+              type="button"
+              title="AI 즉시 설명"
+              aria-label="AI 즉시 설명"
+              style={styles.aiIconBtn}
+              onClick={() => { onAITutor?.(); onClose() }}
+            >
+              <HelpIcon />
+            </button>
 
-            {/* 추가 선택 */}
             {!isRegion && (
               <button
-                title="현재 선택을 유지하고 더 선택"
-                style={{ ...styles.addSelBtn, display: 'none' }}
-                onClick={handleAddSelection}
+                type="button"
+                title="현재 선택을 유지하고 다음 선택 추가"
+                style={styles.addSelBtn}
+                onClick={() => onAddSelection?.()}
               >
-                +선택
+                + 선택
               </button>
             )}
           </div>
+
+          {customPickerOpen && (
+            <CustomColorPicker
+              draft={customDraft}
+              onDraftChange={setCustomDraft}
+              onApply={handleCustomApply}
+              onCancel={() => setCustomPickerOpen(false)}
+            />
+          )}
+
+          {selectedColor && (
+            <div style={styles.colorActions}>
+              <button type="button" style={styles.memoBtn} onClick={() => setPhase('memo')}>
+                메모 쓰기
+              </button>
+              <button type="button" style={styles.colorSaveBtn} onClick={handleQuickSave}>
+                저장
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div style={styles.memoBox}>
           <div style={styles.memoHeader}>
             <span style={{ ...styles.colorDot, background: selectedBg }} />
             <span style={styles.memoLabel}>
-              {pendingCount > 0 ? `${pendingCount + 1}개 선택 · ` : ''}메모 입력
+              {pendingCount > 0 ? `${pendingCount + 1}개 선택 · ` : ''}{getColorLabel(selectedColor)}
             </span>
           </div>
           <textarea
             autoFocus
             style={styles.textarea}
             value={memoText}
-            onChange={(e) => setMemoText(e.target.value)}
-            placeholder="메모 내용 (선택사항)"
+            onChange={(event) => setMemoText(event.target.value)}
+            placeholder="메모를 입력하세요."
             rows={3}
           />
           <div style={styles.actions}>
-            <button style={styles.cancelBtn} onClick={() => { onClearPending?.(); onClose() }}>취소</button>
-            {!isRegion && (
-              <button
-                style={{ ...styles.sendChatBtn, display: 'none' }}
-                onClick={() => { onSendSelectionToChat?.(); onClose() }}
-              >
-                저장 없이 Chat
-              </button>
-            )}
-            <button style={styles.saveBtn} onClick={handleSave}>저장</button>
+            <button type="button" style={styles.cancelBtn} onClick={() => { onClearPending?.(); onClose() }}>
+              취소
+            </button>
+            <button type="button" style={styles.sendChatBtn} onClick={handleSendToChatOnly}>
+              Chat으로 보내기
+            </button>
+            <button type="button" style={styles.saveBtn} onClick={handleMemoSave}>
+              저장
+            </button>
           </div>
         </div>
       )}
@@ -334,27 +352,23 @@ const styles = {
   container: {
     position: 'fixed',
     zIndex: 1000,
-    background: '#1a1a1a',
-    borderRadius: 10,
-    boxShadow: '0 4px 20px rgba(0,0,0,0.3)',
+    background: '#ffffff',
+    border: '1px solid #d8d8ea',
+    borderRadius: 8,
+    boxShadow: '0 14px 30px rgba(7,7,97,0.14)',
+    color: '#111111',
   },
   dragHandle: {
-    textAlign: 'center',
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.3)',
+    height: 8,
     cursor: 'grab',
-    userSelect: 'none',
-    padding: '4px 0 2px',
-    lineHeight: 1,
   },
   colorPhase: {
     display: 'flex',
     flexDirection: 'column',
-    gap: 0,
   },
   pendingSection: {
-    borderBottom: '1px solid rgba(255,255,255,0.1)',
-    padding: '6px 12px 6px',
+    borderBottom: '1px solid #ededf6',
+    padding: '6px 12px',
     display: 'flex',
     flexDirection: 'column',
     gap: 3,
@@ -367,29 +381,28 @@ const styles = {
   },
   pendingBadge: {
     fontSize: 10,
-    color: '#a78bfa',
-    fontWeight: 700,
-    textTransform: 'uppercase',
+    color: '#070761',
+    fontWeight: 800,
   },
   pendingClear: {
     fontSize: 10,
-    color: '#888',
+    color: '#777790',
     cursor: 'pointer',
-    lineHeight: 1,
     background: 'transparent',
     border: 'none',
+    padding: 0,
   },
   pendingItem: {
     display: 'flex',
     alignItems: 'center',
     gap: 6,
-    background: 'rgba(255,255,255,0.07)',
+    background: '#f4f4fb',
     borderRadius: 4,
     padding: '3px 6px',
   },
   pendingItemText: {
     fontSize: 11,
-    color: 'rgba(255,255,255,0.65)',
+    color: '#71718a',
     flex: 1,
     overflow: 'hidden',
     whiteSpace: 'nowrap',
@@ -398,7 +411,6 @@ const styles = {
     fontSize: 13,
     color: '#777',
     cursor: 'pointer',
-    lineHeight: 1,
     background: 'transparent',
     border: 'none',
     flexShrink: 0,
@@ -407,17 +419,23 @@ const styles = {
   colorRow: {
     display: 'flex',
     alignItems: 'center',
-    gap: 8,
-    padding: '10px 12px',
+    gap: 10,
+    padding: '13px 16px',
     flexWrap: 'nowrap',
   },
   colorBtn: {
     width: 22,
     height: 22,
     borderRadius: '50%',
-    border: '2px solid rgba(255,255,255,0.35)',
+    border: '1.4px solid #8585b0',
     cursor: 'pointer',
     flexShrink: 0,
+    padding: 0,
+  },
+  colorBtnSelected: {
+    outline: '2px solid #070761',
+    outlineOffset: 2,
+    boxShadow: '0 0 0 4px rgba(65,255,167,0.24)',
   },
   customBtnWrap: {
     position: 'relative',
@@ -437,150 +455,236 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    lineHeight: 1,
     border: '1px solid #333',
+    padding: 0,
+    lineHeight: 1,
   },
   addBtn: {
     width: 22,
     height: 22,
     borderRadius: '50%',
-    border: '2px dashed rgba(255,255,255,0.35)',
+    border: '1.5px dashed #d4d4df',
     cursor: 'pointer',
     flexShrink: 0,
     fontSize: 14,
-    color: 'rgba(255,255,255,0.6)',
+    color: '#b5b5c4',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    lineHeight: 1,
     background: 'transparent',
-  },
-  hiddenInput: {
-    position: 'absolute',
-    width: 0,
-    height: 0,
-    opacity: 0,
-    pointerEvents: 'none',
-  },
-  confirmBtn: {
-    fontSize: 13,
-    color: '#5CCC7F',
-    cursor: 'pointer',
-    padding: '0 2px',
-    background: 'transparent',
-    border: 'none',
-    lineHeight: 1,
-    fontWeight: 700,
-    flexShrink: 0,
-  },
-  cancelCustomBtn: {
-    fontSize: 13,
-    color: '#ff6b6b',
-    cursor: 'pointer',
-    padding: '0 2px',
-    background: 'transparent',
-    border: 'none',
-    lineHeight: 1,
-    fontWeight: 700,
-    flexShrink: 0,
+    padding: 0,
   },
   divider: {
     width: 1,
     height: 18,
-    background: 'rgba(255,255,255,0.2)',
-    flexShrink: 0,
-  },
-  aiBtn: {
-    fontSize: 16,
-    cursor: 'pointer',
-    padding: '0 2px',
-    lineHeight: 1,
-    background: 'transparent',
-    border: 'none',
-    color: '#fff',
-    flexShrink: 0,
-  },
-  imgChatBtn: {
-    fontSize: 15,
-    cursor: 'pointer',
-    padding: '0 2px',
-    lineHeight: 1,
-    background: 'transparent',
-    border: 'none',
-    color: '#fff',
+    background: '#e1e1ee',
     flexShrink: 0,
   },
   chatContextBtn: {
     fontSize: 11,
     cursor: 'pointer',
-    padding: '4px 7px',
-    lineHeight: 1,
-    background: '#6366f1',
-    border: '1px solid rgba(255,255,255,0.2)',
-    color: '#fff',
+    padding: '5px 10px',
+    background: '#fff7dc',
+    border: '1px solid transparent',
+    color: '#8b6800',
     borderRadius: 5,
     flexShrink: 0,
-    fontWeight: 700,
+    fontWeight: 900,
+  },
+  imgChatBtn: {
+    fontSize: 11,
+    cursor: 'pointer',
+    padding: '5px 10px',
+    background: '#fff7dc',
+    border: '1px solid transparent',
+    color: '#8b6800',
+    borderRadius: 5,
+    flexShrink: 0,
+    fontWeight: 900,
+  },
+  aiIconBtn: {
+    width: 36,
+    height: 28,
+    borderRadius: 5,
+    border: '1px solid #d8d8ef',
+    background: '#f1f1ff',
+    color: '#070761',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    flexShrink: 0,
+    padding: 0,
   },
   addSelBtn: {
     fontSize: 11,
     cursor: 'pointer',
-    padding: '3px 7px',
-    lineHeight: 1,
-    background: 'rgba(255,255,255,0.12)',
-    border: '1px solid rgba(255,255,255,0.2)',
-    color: 'rgba(255,255,255,0.8)',
+    padding: '5px 10px',
+    background: '#f2f2fb',
+    border: '1px solid #dfdff0',
+    color: '#070761',
     borderRadius: 5,
     flexShrink: 0,
-    fontWeight: 600,
+    fontWeight: 900,
     whiteSpace: 'nowrap',
+  },
+  customPicker: {
+    display: 'grid',
+    gridTemplateColumns: '28px 92px auto 24px',
+    alignItems: 'center',
+    gap: 8,
+    margin: '0 16px 12px',
+    padding: '9px 10px',
+    borderRadius: 7,
+    background: '#f7f7fb',
+    border: '1px solid #dedeee',
+  },
+  colorInput: {
+    width: 28,
+    height: 28,
+    padding: 0,
+    border: 'none',
+    background: 'transparent',
+    cursor: 'pointer',
+  },
+  hexInput: {
+    width: 92,
+    height: 28,
+    border: '1px solid #cfcfe3',
+    borderRadius: 5,
+    padding: '0 8px',
+    color: '#111111',
+    fontSize: 12,
+    fontFamily: 'inherit',
+    outline: 'none',
+  },
+  hexInputInvalid: {
+    borderColor: '#c01048',
+    background: '#fff1f3',
+  },
+  applyColorBtn: {
+    height: 28,
+    padding: '0 10px',
+    border: 'none',
+    borderRadius: 5,
+    background: '#070761',
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 900,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  cancelColorBtn: {
+    width: 24,
+    height: 24,
+    border: 'none',
+    borderRadius: 5,
+    background: 'transparent',
+    color: '#777790',
+    fontSize: 16,
+    fontWeight: 900,
+    cursor: 'pointer',
+    padding: 0,
+    lineHeight: '24px',
+  },
+  colorActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: 8,
+    padding: '0 16px 13px',
+  },
+  memoBtn: {
+    height: 28,
+    padding: '0 12px',
+    borderRadius: 5,
+    background: '#eeeef8',
+    color: '#070761',
+    fontSize: 12,
+    fontWeight: 800,
+    cursor: 'pointer',
+    border: 'none',
+  },
+  colorSaveBtn: {
+    height: 28,
+    padding: '0 14px',
+    borderRadius: 5,
+    background: '#070761',
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 900,
+    cursor: 'pointer',
+    border: 'none',
   },
   memoBox: {
     display: 'flex',
     flexDirection: 'column',
     gap: 8,
-    padding: 12,
-    width: 220,
+    padding: 14,
+    width: 320,
   },
-  memoHeader: { display: 'flex', alignItems: 'center', gap: 6 },
-  colorDot: { width: 10, height: 10, borderRadius: '50%', flexShrink: 0 },
-  memoLabel: { fontSize: 11, color: 'rgba(255,255,255,0.65)', fontWeight: 600 },
+  memoHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 6,
+  },
+  colorDot: {
+    width: 22,
+    height: 22,
+    borderRadius: '50%',
+    flexShrink: 0,
+    border: '2px solid #070761',
+    boxShadow: '0 0 0 2px #e8e8f2',
+  },
+  memoLabel: {
+    fontSize: 14,
+    color: '#333333',
+    fontWeight: 800,
+  },
   textarea: {
     resize: 'none',
-    border: '1px solid rgba(255,255,255,0.2)',
-    borderRadius: 6,
-    padding: '6px 8px',
-    fontSize: 13,
+    border: '1px solid #cfcfe3',
+    borderRadius: 5,
+    padding: '13px 14px',
+    fontSize: 15,
     fontFamily: 'inherit',
     outline: 'none',
-    background: 'rgba(255,255,255,0.1)',
-    color: '#fff',
+    background: '#ffffff',
+    color: '#111111',
+    lineHeight: '20px',
+    minHeight: 126,
   },
-  actions: { display: 'flex', justifyContent: 'flex-end', gap: 6 },
+  actions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: 6,
+  },
   cancelBtn: {
-    padding: '4px 10px',
+    padding: '7px 10px',
     borderRadius: 5,
-    background: 'rgba(255,255,255,0.15)',
-    color: '#fff',
+    background: '#f1f1fb',
+    color: '#070761',
     fontSize: 12,
     cursor: 'pointer',
-  },
-  saveBtn: {
-    padding: '4px 12px',
-    borderRadius: 5,
-    background: '#fff',
-    color: '#1a1a1a',
-    fontSize: 12,
-    fontWeight: 700,
-    cursor: 'pointer',
+    border: 'none',
+    fontWeight: 800,
   },
   sendChatBtn: {
-    padding: '4px 10px',
+    padding: '7px 10px',
     borderRadius: 5,
-    background: '#6366f1',
-    color: '#fff',
+    background: '#efeffa',
+    color: '#070761',
     fontSize: 12,
-    fontWeight: 700,
+    fontWeight: 800,
+    cursor: 'pointer',
+    border: 'none',
+  },
+  saveBtn: {
+    padding: '7px 13px',
+    borderRadius: 5,
+    background: '#070761',
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: 900,
     cursor: 'pointer',
     border: 'none',
   },

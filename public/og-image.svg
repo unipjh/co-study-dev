@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-label="Co-Study OG image">
+  <rect width="1200" height="630" fill="#ffffff"/>
+  <circle cx="600" cy="286" r="250" fill="#41ffa7"/>
+  <g transform="translate(427 200) scale(1.15)" fill="#070761">
+    <text x="0" y="70" font-family="Arial Black, Arial, sans-serif" font-size="74" font-weight="900" letter-spacing="-4">Cö</text>
+    <text x="15" y="153" font-family="Arial Black, Arial, sans-serif" font-size="78" font-weight="900" letter-spacing="-4">- Study</text>
+  </g>
+  <text x="600" y="586" text-anchor="middle" font-family="Arial, sans-serif" font-size="34" font-weight="700" fill="#8a87b8">PDF를 함께 공부하는 공간</text>
+</svg>

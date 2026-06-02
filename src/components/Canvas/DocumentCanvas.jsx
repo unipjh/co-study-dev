@@ -5,11 +5,12 @@ import 'react-pdf/dist/Page/AnnotationLayer.css'
 import { extractSelection, mergeLineRects } from '../../lib/selectionUtils'
 import useDocumentStore from '../../store/documentStore'
 import useAnnotation from '../../hooks/useAnnotation'
-import useAI, { buildRagSystemInstruction, NO_CHUNK_FALLBACK } from '../AI/useAI'
+import useAI from '../AI/useAI'
 import useDocumentIndex from '../../hooks/useDocumentIndex'
 import useLearningUnits from '../../hooks/useLearningUnits'
-import useLearningQuestionAnswers from '../../hooks/useLearningQuestionAnswers'
+import useLearningQuestionAnswers, { getGateQuestions } from '../../hooks/useLearningQuestionAnswers'
 import { buildLearningUnitsFromChunks, findUnitForPage } from '../../lib/learningUnits'
+import { buildContextPackage, composePrompt } from '../../lib/ai/contextPipeline'
 import HighlightLayer from './HighlightLayer'
 import SelectionToolbar from './SelectionToolbar'
 import SelectionActionPopup from './SelectionActionPopup'
@@ -17,6 +18,7 @@ import ContextMenu from './ContextMenu'
 import AnnotationPopup from './AnnotationPopup'
 import AIInlinePopup from './AIInlinePopup'
 import LearningGoalOverlay from './LearningGoalOverlay'
+import LearningQuestionPopup from './LearningQuestionPopup'
 
 function SelectionOverlay({ rects }) {
   if (!rects || rects.length === 0) return null
@@ -67,10 +69,10 @@ function RegionDragPreview({ drag }) {
 }
 
 const SIDEBAR_TABS = [
-  { key: 'chat',    label: 'Chat' },
-  { key: 'memo',    label: 'Memo' },
-  { key: 'mindmap', label: 'Map' },
-  { key: 'quiz',    label: 'Quiz' },
+  { key: 'chat',    label: '💬 채팅' },
+  { key: 'memo',    label: '📝 메모' },
+  { key: 'mindmap', label: '🧠 마인드맵' },
+  { key: 'quiz',    label: '🧩 퀴즈' },
 ]
 
 export default function DocumentCanvas({
@@ -84,6 +86,8 @@ export default function DocumentCanvas({
   isMobile = false,
   onSidebarToggle,
   onShowSuggestedQuestions,
+  questionPromptRequest,
+  onQuestionPromptHandled,
   questionGateEnabled = true,
   onToggleQuestionGate,
 }) {
@@ -120,7 +124,9 @@ export default function DocumentCanvas({
   const currentPageRange = currentUnit || currentCandidateUnit
     ? `${(currentUnit ?? currentCandidateUnit).startPageIndex + 1}-${(currentUnit ?? currentCandidateUnit).endPageIndex + 1}p`
     : `${currentPage}p`
-  const activeBlockingUnit = currentUnit?.focusQuestions?.length ? currentUnit : null
+  const currentGateQuestions = getGateQuestions(currentUnit, currentPageIndex)
+  const activeBlockingUnit = currentGateQuestions.length ? currentUnit : null
+  const isUnitLastPage = currentGateQuestions.length > 0 && currentPageIndex === currentUnit.endPageIndex
 
   const [selection, setSelection]               = useState(null)
   const [memoToolbarOpen, setMemoToolbarOpen]   = useState(false)
@@ -132,25 +138,27 @@ export default function DocumentCanvas({
   const [regionError, setRegionError]           = useState(null)
   const [contextMenu, setContextMenu]           = useState(null)
   const [blockedPageTarget, setBlockedPageTarget] = useState(null)
-  // 멀티 드래그 누적 그룹
+  const [questionPopupMode, setQuestionPopupMode] = useState(null)
+  const [dismissedUnitLastPageId, setDismissedUnitLastPageId] = useState(null)
+  // 硫???쒕옒洹??꾩쟻 洹몃９
   const [pendingGroups, setPendingGroups]       = useState([])
   const [wrapperWidth, setWrapperWidth]         = useState(800)
 
   const pageContainerRef = useRef(null)
   const firstScrollRef   = useRef(null)
   const pageRefs         = useRef({})
-  const pageCanvasRef    = useRef(null)   // page 모드 PDF 캔버스 직접 참조
-  const scrollCanvasRefs = useRef({})     // scroll 모드 PDF 캔버스 직접 참조
-  const outerRef         = useRef(null)  // 스크롤 컨테이너 (pan mode용)
-  const wrapperRef       = useRef(null)  // canvasWrapper 너비 측정용
-  const navDebounceRef   = useRef(null)  // 방향키 페이지 이동 debounce 타이머
-  const targetPageRef    = useRef(null)  // debounce 중 목표 페이지
+  const pageCanvasRef    = useRef(null)   // page 紐⑤뱶 PDF 罹붾쾭??吏곸젒 李몄“
+  const scrollCanvasRefs = useRef({})     // scroll 紐⑤뱶 PDF 罹붾쾭??吏곸젒 李몄“
+  const outerRef         = useRef(null)  // ?ㅽ겕濡?而⑦뀒?대꼫 (pan mode??
+  const wrapperRef       = useRef(null)  // canvasWrapper ?덈퉬 痢≪젙??
+  const navDebounceRef   = useRef(null)  // 諛⑺뼢???섏씠吏 ?대룞 debounce ??대㉧
+  const targetPageRef    = useRef(null)  // debounce 以?紐⑺몴 ?섏씠吏
   const mobileAutoFitZoomRef = useRef(null)
 
-  // 영역 선택 드래그 상태
+  // ?곸뿭 ?좏깮 ?쒕옒洹??곹깭
   const [regionDrag, setRegionDrag] = useState(null)
 
-  // 페이지→스크롤 전환 시 위치 유지용
+  // ?섏씠吏?믪뒪?щ· ?꾪솚 ???꾩튂 ?좎???
   const prevViewModeRef   = useRef(viewMode)
   const scrollToPageRef   = useRef(currentPage)
 
@@ -172,15 +180,44 @@ export default function DocumentCanvas({
     prefetchUnitsAroundPage(currentPageIndex, allChunks)
   }, [indexed, allChunks, currentPageIndex, prefetchUnitsAroundPage])
 
-  // 페이지 전환 시 AI 인라인 팝업 초기화
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!questionPromptRequest?.id) return
+    if (!questionGateEnabled) {
+      setBlockedPageTarget(null)
+      setQuestionPopupMode(null)
+      onQuestionPromptHandled?.(questionPromptRequest.id)
+      return
+    }
+    setBlockedPageTarget({
+      page: questionPromptRequest.page,
+      reason: questionPromptRequest.reason ?? 'external',
+    })
+    setQuestionPopupMode('blocked')
+    onQuestionPromptHandled?.(questionPromptRequest.id)
+  }, [questionPromptRequest?.id, questionPromptRequest?.page, questionPromptRequest?.reason, questionGateEnabled, onQuestionPromptHandled])
+
+  useEffect(() => {
+    if (questionGateEnabled) return
+    setBlockedPageTarget(null)
+    setQuestionPopupMode(null)
+  }, [questionGateEnabled])
+
+  useEffect(() => {
+    if (!questionGateEnabled) return
+    if (!isUnitLastPage || !currentUnit?.id) return
+    if (dismissedUnitLastPageId === currentUnit.id) return
+    if (unresolvedQuestions(currentUnit, currentPageIndex).length === 0) return
+    setQuestionPopupMode('review')
+  }, [questionGateEnabled, isUnitLastPage, currentUnit, currentPageIndex, dismissedUnitLastPageId, unresolvedQuestions])
+
+  // ?섏씠吏 ?꾪솚 ??AI ?몃씪???앹뾽 珥덇린??  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { if (aiState) { setAiState(null); reset() } }, [currentPage])
 
-  // ── 페이지→스크롤 전환 시 현재 페이지로 스크롤 ───────────────
+  // ?? ?섏씠吏?믪뒪?щ· ?꾪솚 ???꾩옱 ?섏씠吏濡??ㅽ겕濡????????????????
   useEffect(() => {
     if (viewMode === 'scroll' && prevViewModeRef.current === 'page') {
       const pageIdx = scrollToPageRef.current - 1
-      // 스크롤 모드로 렌더 완료 후 이동
+      // ?ㅽ겕濡?紐⑤뱶濡??뚮뜑 ?꾨즺 ???대룞
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           const el = pageRefs.current[pageIdx]
@@ -216,10 +253,7 @@ export default function DocumentCanvas({
 
       if (best && best.pageIndex + 1 !== scrollToPageRef.current) {
         const moved = requestPageChange(best.pageIndex + 1, { reason: 'scroll' })
-        if (!moved) {
-          const currentEl = pageRefs.current[scrollToPageRef.current - 1]
-          currentEl?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        }
+        if (!moved) return
       }
     }
 
@@ -239,7 +273,7 @@ export default function DocumentCanvas({
     }
   }, [viewMode, numPages, zoomLevel, setCurrentPage, currentPage, activeBlockingUnit, questionGateEnabled, unresolvedQuestions])
 
-  // ── canvasWrapper 너비 감지 (하단 바 스케일용) ───────────────
+  // ?? canvasWrapper ?덈퉬 媛먯? (?섎떒 諛??ㅼ??쇱슜) ???????????????
   useEffect(() => {
     const el = wrapperRef.current
     if (!el) return
@@ -248,7 +282,7 @@ export default function DocumentCanvas({
     return () => ro.disconnect()
   }, [])
 
-  // ── 키보드 방향키: 페이지 전환 + Shift+Arrow 선택 영역 확장/축소 ──
+  // ?? ?ㅻ낫??諛⑺뼢?? ?섏씠吏 ?꾪솚 + Shift+Arrow ?좏깮 ?곸뿭 ?뺤옣/異뺤냼 ??
   useEffect(() => {
     function handleKeyDown(e) {
       const ARROW_KEYS = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']
@@ -276,7 +310,7 @@ export default function DocumentCanvas({
         }
         return
       }
-      // Shift+Arrow: 브라우저 표준처럼 선택 끝점 확장/축소
+      // Shift+Arrow: 釉뚮씪?곗? ?쒖?泥섎읆 ?좏깮 ?앹젏 ?뺤옣/異뺤냼
       if (e.shiftKey && selection && ARROW_KEYS.includes(key)) {
         e.preventDefault()
         const domSel = window.getSelection()
@@ -286,8 +320,7 @@ export default function DocumentCanvas({
         const granularity = (key === 'ArrowLeft'  || key === 'ArrowRight') ? 'character' : 'line'
         domSel.modify('extend', direction, granularity)
 
-        // DOM 선택 변경 후 selection 재추출
-        let container    = null
+        // DOM ?좏깮 蹂寃???selection ?ъ텛異?        let container    = null
         let selPageIndex = currentPage - 1
         if (viewMode === 'page') {
           container = pageContainerRef.current
@@ -314,7 +347,7 @@ export default function DocumentCanvas({
         }
         return
       }
-      // page 모드 방향키 전환 (shift 없을 때)
+      // page 紐⑤뱶 諛⑺뼢???꾪솚 (shift ?놁쓣 ??
       if (viewMode !== 'page' || e.shiftKey) return
       if (isTextInput) return
       if (key === 'ArrowLeft' || key === 'ArrowUp') {
@@ -343,7 +376,7 @@ export default function DocumentCanvas({
     return () => window.removeEventListener('keydown', handleKeyDown, true)
   }, [viewMode, currentPage, numPages, setCurrentPage, selection, dragRects, pendingGroups.length, activeAnnotation, aiState, contextMenu, undoLast, reset, questionGateEnabled, activeBlockingUnit, unresolvedQuestions])
 
-  // ── 터치 팬 + 핀치 줌 ────────────────────────────────────────
+  // ?? ?곗튂 ??+ ?移?以?????????????????????????????????????????
   useEffect(() => {
     const el = outerRef.current
     if (!el) return
@@ -495,7 +528,7 @@ export default function DocumentCanvas({
     return () => document.removeEventListener('selectionchange', handleSelectionChange)
   }, [viewMode, currentPage, selectionMode])
 
-  // ── 스크롤 모드에서 올바른 페이지 컨테이너 찾기 ───────────────
+  // ?? ?ㅽ겕濡?紐⑤뱶?먯꽌 ?щ컮瑜??섏씠吏 而⑦뀒?대꼫 李얘린 ???????????????
   function findScrollContainer() {
     const sel = window.getSelection()
     if (!sel || sel.rangeCount === 0) return { container: null, selPageIndex: 0 }
@@ -527,8 +560,7 @@ export default function DocumentCanvas({
 
     const info = extractSelection(container, selPageIndex)
     if (info && info.text.trim().length > 0) {
-      // removeAllRanges 하지 않음 → 사용자가 Ctrl+C로 복사 가능
-      setActiveAnnotation(null)
+      // removeAllRanges ?섏? ?딆쓬 ???ъ슜?먭? Ctrl+C濡?蹂듭궗 媛??      setActiveAnnotation(null)
       setAiState(null)
       setSelection(info)
       setMemoToolbarOpen(false)
@@ -537,7 +569,7 @@ export default function DocumentCanvas({
     }
   }, [currentPage, viewMode, selectionMode])
 
-  // 트리플 클릭 → 해당 줄 전체 선택
+  // ?몃━???대┃ ???대떦 以??꾩껜 ?좏깮
   const handleTripleClick = useCallback((e, pageIndex, containerEl) => {
     if (e.detail < 3) return
     if (selectionMode === 'region') return
@@ -573,7 +605,7 @@ export default function DocumentCanvas({
     handleMouseUp()
   }, [selectionMode, handleMouseUp])
 
-  // 페이지 전체 텍스트 선택
+  // ?섏씠吏 ?꾩껜 ?띿뒪???좏깮
   const handleSelectAll = useCallback(() => {
     if (selectionMode === 'region' || viewMode !== 'page') return
     const container = pageContainerRef.current
@@ -614,11 +646,12 @@ export default function DocumentCanvas({
 
     const currentUnitId = activeBlockingUnit?.id ?? null
     const targetUnitId = getUnitIdForPage(clampedPage - 1)
-    const pending = activeBlockingUnit ? unresolvedQuestions(activeBlockingUnit) : []
+    const pending = activeBlockingUnit ? unresolvedQuestions(activeBlockingUnit, currentPageIndex) : []
     const shouldBlock = pending.length > 0 && currentUnitId && targetUnitId !== currentUnitId
 
     if (shouldBlock) {
       setBlockedPageTarget({ page: clampedPage, reason: options.reason ?? 'page' })
+      setQuestionPopupMode('blocked')
       return false
     }
 
@@ -628,7 +661,45 @@ export default function DocumentCanvas({
     return true
   }
 
-  // ── Pan 모드 드래그 스크롤 ────────────────────────────────────
+  function closeQuestionPopup() {
+    if (questionPopupMode === 'review' && currentUnit?.id) {
+      setDismissedUnitLastPageId(currentUnit.id)
+    }
+    setQuestionPopupMode(null)
+  }
+
+  function moveAfterQuestionsResolved() {
+    if (!blockedPageTarget?.page) return
+    const page = blockedPageTarget.page
+    const shouldStayInScroll = viewMode === 'scroll'
+    setBlockedPageTarget(null)
+    setQuestionPopupMode(null)
+    setCurrentPage(page)
+    if (shouldStayInScroll) {
+      requestAnimationFrame(() => {
+        const el = pageRefs.current[page - 1]
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      })
+      return
+    }
+    setViewMode('page')
+  }
+
+  function askQuestionInChat(prompt) {
+    onShowSuggestedQuestions?.()
+    onSendToChat?.({
+      id: `thinking-question:${Date.now()}`,
+      transient: true,
+      type: 'thinking-question',
+      text: '?ш퀬 吏덈Ц',
+      content: prompt,
+      pageIndex: currentPageIndex,
+      autoPrompt: prompt,
+    })
+    closeQuestionPopup()
+  }
+
+  // ?? Pan 紐⑤뱶 ?쒕옒洹??ㅽ겕濡?????????????????????????????????????
   const handlePanMouseDown = useCallback((e) => {
     if (selectionMode !== 'pan') return
     if (e.button !== 0) return
@@ -656,7 +727,7 @@ export default function DocumentCanvas({
     e.preventDefault()
   }, [selectionMode])
 
-  // ── 영역 선택 핸들러 ──────────────────────────────────────────
+  // ?? ?곸뿭 ?좏깮 ?몃뱾????????????????????????????????????????????
   function handleRegionMouseDown(e, pageIndex, containerEl) {
     if (selectionMode !== 'region') return
     e.preventDefault()
@@ -713,7 +784,7 @@ export default function DocumentCanvas({
           setActiveAnnotation(null)
           setAiState(null)
           setSelection({
-            pageIndex, text: '[영역 선택]',
+            pageIndex, text: '[?곸뿭 ?좏깮]',
             rects: [{ top, left, width, height }],
             spanIndex: 0, startOffset: 0, endOffset: 0, isRegion: true,
             viewportRect: {
@@ -743,7 +814,7 @@ export default function DocumentCanvas({
     }
   }, [regionDrag])
 
-  // 색상 선택 완료 → 단일 또는 멀티 드래그 annotation 저장
+  // ?됱긽 ?좏깮 ?꾨즺 ???⑥씪 ?먮뒗 硫???쒕옒洹?annotation ???
   function handleSelectionSave(color, content) {
     if (!selection) return
     const groups = [...pendingGroups, selection]
@@ -754,7 +825,7 @@ export default function DocumentCanvas({
     setPendingGroups([])
   }
 
-  // "추가 선택" — 현재 selection을 pending에 쌓고 toolbar 닫기
+  // "異붽? ?좏깮" ???꾩옱 selection??pending???볤퀬 toolbar ?リ린
   function handleAddSelection() {
     if (!selection) return
     window.getSelection()?.removeAllRanges()
@@ -764,17 +835,17 @@ export default function DocumentCanvas({
     setDragRects(null)
   }
 
-  // 누적 초기화
+  // ?꾩쟻 珥덇린??
   function handleClearPending() {
     setPendingGroups([])
   }
 
-  // 누적 항목 개별 제거
+  // ?꾩쟻 ??ぉ 媛쒕퀎 ?쒓굅
   function handleRemovePending(index) {
     setPendingGroups((prev) => prev.filter((_, i) => i !== index))
   }
 
-  // 소프트 닫기: toolbar만 닫음, pendingGroups 보존 (외부 클릭, 페이지 이동 등)
+  // ?뚰봽???リ린: toolbar留??レ쓬, pendingGroups 蹂댁〈 (?몃? ?대┃, ?섏씠吏 ?대룞 ??
   function handleSoftClose() {
     window.getSelection()?.removeAllRanges()
     setSelection(null)
@@ -782,7 +853,7 @@ export default function DocumentCanvas({
     setDragRects(null)
   }
 
-  // 명시적 취소: pendingGroups까지 초기화 (취소 버튼, 모두 지우기)
+  // 紐낆떆??痍⑥냼: pendingGroups源뚯? 珥덇린??(痍⑥냼 踰꾪듉, 紐⑤몢 吏?곌린)
   function handleSelectionClose() {
     window.getSelection()?.removeAllRanges()
     setSelection(null)
@@ -854,10 +925,10 @@ export default function DocumentCanvas({
       pageIndex,
       text: pageText || `${pageIndex + 1}p`,
       color: 'blue',
-      content: '현재 페이지를 핵심 개념 중심으로 요약해줘.',
+      content: '?꾩옱 ?섏씠吏瑜??듭떖 媛쒕뀗 以묒떖?쇰줈 ?붿빟?댁쨾.',
       type: 'page-summary',
       transient: true,
-      autoPrompt: '현재 페이지를 핵심 개념, 중요한 용어, 시험에 나올 만한 포인트 중심으로 요약해줘.',
+      autoPrompt: '?꾩옱 ?섏씠吏瑜??듭떖 媛쒕뀗, 以묒슂???⑹뼱, ?쒗뿕???섏삱 留뚰븳 ?ъ씤??以묒떖?쇰줈 ?붿빟?댁쨾.',
       createdAt: new Date().toISOString(),
     })
   }
@@ -879,15 +950,15 @@ export default function DocumentCanvas({
     }
   }
 
-  // ── 영역 선택 이미지 캡처 (pdf.js 캔버스 크롭) ───────────────
-  // pageCanvas: react-pdf canvasRef로 직접 받은 HTMLCanvasElement
-  // containerEl: 좌표 기준 컨테이너 (pageWrapper div)
+  // ?? ?곸뿭 ?좏깮 ?대?吏 罹≪쿂 (pdf.js 罹붾쾭???щ∼) ???????????????
+  // pageCanvas: react-pdf canvasRef濡?吏곸젒 諛쏆? HTMLCanvasElement
+  // containerEl: 醫뚰몴 湲곗? 而⑦뀒?대꼫 (pageWrapper div)
   function captureRegionAsBase64(pageCanvas, containerEl, rects) {
     try {
       if (!pageCanvas || !containerEl || !rects?.length) return null
       const displayRect = containerEl.getBoundingClientRect()
       const rect = rects[0]
-      // pageCanvas.width = 물리 픽셀, displayRect = CSS 픽셀
+      // pageCanvas.width = 臾쇰━ ?쎌?, displayRect = CSS ?쎌?
       const scaleX = pageCanvas.width  / displayRect.width
       const scaleY = pageCanvas.height / displayRect.height
       const srcX = Math.round(rect.left   * displayRect.width  * scaleX)
@@ -903,7 +974,7 @@ export default function DocumentCanvas({
       ctx.drawImage(pageCanvas, srcX, srcY, srcW, srcH, 0, 0, srcW, srcH)
       return tmp.toDataURL('image/png').split(',')[1]
     } catch (err) {
-      console.error('[captureRegionAsBase64] 캡처 실패:', err)
+      console.error('[captureRegionAsBase64] 罹≪쿂 ?ㅽ뙣:', err)
       return null
     }
   }
@@ -918,14 +989,14 @@ export default function DocumentCanvas({
       : pageRefs.current[selection.pageIndex]
     const imageData = captureRegionAsBase64(pageCanvas, containerEl, selection.rects)
     if (!imageData) {
-      setRegionError('이미지 캡처에 실패했습니다. 다시 시도해주세요.')
+      setRegionError('?대?吏 罹≪쿂???ㅽ뙣?덉뒿?덈떎. ?ㅼ떆 ?쒕룄?댁＜?몄슂.')
       setTimeout(() => setRegionError(null), 3000)
       return
     }
     onSendToChat?.({
       id:        `region_${Date.now()}`,
       type:      'region',
-      text:      '[영역 선택]',
+      text:      '[?곸뿭 ?좏깮]',
       color:     'blue',
       pageIndex: selection.pageIndex,
       content:   '',
@@ -968,27 +1039,21 @@ export default function DocumentCanvas({
     setPendingGroups([])
     reset()
 
-    // RAG: 의미 검색 + 선택한 페이지 강제 포함
     const topChunks = await searchIndex(saved.text)
-    const chunkMap = new Map(topChunks.map((c) => [c.pageIndex, c]))
-    const selPageChunk = getChunkByPage(saved.pageIndex)
-    if (selPageChunk && !chunkMap.has(selPageChunk.pageIndex)) {
-      chunkMap.set(selPageChunk.pageIndex, selPageChunk)
-    }
-    const finalChunks = [...chunkMap.values()].sort((a, b) => a.pageIndex - b.pageIndex)
-
-    const availablePages = finalChunks.map((c) => `p.${c.pageIndex + 1}`).join(', ')
-
-    // ragBlock: 데이터만 (citation 규칙은 systemOverride로 분리)
-    const ragBlock = finalChunks.length > 0
-      ? `[문서 컨텍스트 — ${availablePages}]\n` +
-        finalChunks.map((c) => `(p.${c.pageIndex + 1}) ${c.text}`).join('\n') +
-        '\n---\n'
-      : ''
-
-    const systemOverride = finalChunks.length > 0
-      ? buildRagSystemInstruction(availablePages)
-      : NO_CHUNK_FALLBACK
+    const selectionContext = [{ ...saved, type: 'text' }]
+    const contextPackage = buildContextPackage({
+      userText: saved.text,
+      intent: 'quick_explain',
+      semanticChunks: topChunks,
+      selectedContexts: selectionContext,
+      currentPageChunk: getChunkByPage(saved.pageIndex),
+      getChunkByPage,
+    })
+    const { ragBlock, systemInstruction: systemOverride } = composePrompt({
+      userText: saved.text,
+      selectedContexts: selectionContext,
+      contextPackage,
+    })
 
     ask(saved.text, 'explain', ragBlock, systemOverride)
   }
@@ -1012,18 +1077,18 @@ export default function DocumentCanvas({
     reset()
   }
 
-  // pending 오버레이: 각 그룹의 rects를 현재 페이지에서 표시
+  // pending ?ㅻ쾭?덉씠: 媛?洹몃９??rects瑜??꾩옱 ?섏씠吏?먯꽌 ?쒖떆
   const pendingOverlayRects = pendingGroups
     .filter((g) => g.pageIndex === currentPage - 1)
     .flatMap((g) => g.rects)
-  const rightPageNavOffset = 12
+  const rightPageNavOffset = sidebarOpen && !isMobile ? sidebarWidth + 12 : 12
   const pageNavHidden = sidebarOpen && isMobile
   const canvasWrapperStyle = {
     ...styles.canvasWrapper,
     marginRight: sidebarOpen && !isMobile ? sidebarWidth : 0,
   }
 
-  // pan 모드 outer 스타일
+  // pan 紐⑤뱶 outer ?ㅽ???
   const outerStyle = {
     ...styles.outer,
     ...(isMobile ? styles.outerMobile : {}),
@@ -1031,22 +1096,21 @@ export default function DocumentCanvas({
     userSelect: selectionMode === 'pan' ? 'none' : undefined,
     touchAction: selectionMode === 'pan' ? 'none' : 'pan-x pan-y',
   }
-  const bottomBarStyle = {
-    ...styles.bottomBar,
-    ...(isMobile ? styles.bottomBarMobile : {}),
+  const leftRailStyle = {
+    ...styles.leftRail,
+    ...(isMobile ? styles.leftRailMobile : {}),
   }
-  const blockNoticeStyle = {
-    ...styles.blockNotice,
-    ...(isMobile ? styles.blockNoticeMobile : {}),
+  const bottomDockStyle = {
+    ...styles.bottomDock,
+    ...(isMobile ? styles.bottomDockMobile : {}),
   }
-
   if (!pdfBlob) {
     return (
       <div style={styles.canvasWrapper}>
         <div style={styles.outer}>
           <div style={styles.loadingCenter}>
             <div style={styles.spinner} />
-            <p style={styles.loadingText}>문서를 불러오는 중...</p>
+            <p style={styles.loadingText}>臾몄꽌瑜?遺덈윭?ㅻ뒗 以?..</p>
           </div>
         </div>
       </div>
@@ -1081,7 +1145,7 @@ export default function DocumentCanvas({
           file={pdfFile}
           onLoadSuccess={({ numPages: n }) => setNumPages(n)}
           onLoadError={(err) => console.error('PDF load error:', err)}
-          loading={<div style={styles.loadingCenter}><div style={styles.spinner} /><p style={styles.loadingText}>PDF 파싱 중...</p></div>}
+          loading={<div style={styles.loadingCenter}><div style={styles.spinner} /><p style={styles.loadingText}>PDF ?뚯떛 以?..</p></div>}
         >
           {viewMode === 'page' ? (
             <div
@@ -1105,7 +1169,7 @@ export default function DocumentCanvas({
                 onClickAnnotation={handleAnnotationClick}
                 onContextMenuAnnotation={handleAnnotationContextMenu}
               />
-              {/* 멀티 드래그 누적 오버레이 */}
+              {/* 硫???쒕옒洹??꾩쟻 ?ㅻ쾭?덉씠 */}
               {pendingOverlayRects.length > 0 && (
                 <SelectionOverlay rects={pendingOverlayRects} />
               )}
@@ -1126,7 +1190,7 @@ export default function DocumentCanvas({
                   onClose={() => { setActiveAnnotation(null); setActiveAnnotationPage(null) }}
                 />
               )}
-              {/* 영역 선택 오버레이 */}
+              {/* ?곸뿭 ?좏깮 ?ㅻ쾭?덉씠 */}
               {selectionMode === 'region' && (
                 <div
                   style={regionCaptureStyle}
@@ -1211,11 +1275,11 @@ export default function DocumentCanvas({
         </Document>
       </div>
 
-      {/* 양 옆 페이지 이동 버튼 */}
+      {/* ?????섏씠吏 ?대룞 踰꾪듉 */}
       {viewMode === 'page' && numPages > 0 && !pageNavHidden && (
         <>
           <button
-            style={{ ...styles.pageNavBtn, left: 12, opacity: currentPage <= 1 ? 0.25 : 0.65 }}
+            style={{ ...styles.pageNavBtn, left: isMobile ? 12 : 170, opacity: currentPage <= 1 ? 0.25 : 0.65 }}
             onClick={() => requestPageChange(currentPage - 1, { reason: 'button' })}
             disabled={currentPage <= 1}
           >
@@ -1231,112 +1295,73 @@ export default function DocumentCanvas({
         </>
       )}
 
-      {/* 영역 캡처 실패 알림 */}
-      {blockedPageTarget && (
-        <div style={blockNoticeStyle}>
-          <button
-            type="button"
-            style={styles.blockCloseBtn}
-            onClick={() => setBlockedPageTarget(null)}
-            aria-label="제한 안내 닫기"
-            title="닫기"
-          >
-            X
-          </button>
-          <button
-            type="button"
-            style={styles.gateToggleBtn}
-            onClick={() => {
-              setBlockedPageTarget(null)
-              onToggleQuestionGate?.()
-            }}
-          >
-            제한 끄기
-          </button>
-          <div style={styles.blockNoticeText}>
-            <strong>추천 질문 답변이 필요합니다.</strong>
-            <span>
-              온전한 학습을 위해 페이지를 넘기기 전 핵심 질문에 먼저 답하도록 돕는 장치입니다.
-              답변 저장 또는 Skip 후 {blockedPageTarget.page}페이지로 이동할 수 있습니다.
-            </span>
-          </div>
-        </div>
+      {/* ?곸뿭 罹≪쿂 ?ㅽ뙣 ?뚮┝ */}
+      {questionGateEnabled && questionPopupMode && activeBlockingUnit && (
+        <LearningQuestionPopup
+          docId={docId}
+          unit={activeBlockingUnit}
+          pageIndex={currentPageIndex}
+          targetPage={questionPopupMode === 'blocked' ? blockedPageTarget?.page : null}
+          mode={questionPopupMode}
+          questionGateEnabled={questionGateEnabled}
+          onClose={closeQuestionPopup}
+          onTurnOffGate={() => {
+            setBlockedPageTarget(null)
+            setQuestionPopupMode(null)
+            onToggleQuestionGate?.()
+          }}
+          onMoveAfterResolved={moveAfterQuestionsResolved}
+          onAskChat={askQuestionInChat}
+        />
       )}
 
       {regionError && (
         <div style={styles.regionErrorToast}>{regionError}</div>
       )}
 
-      {/* 하단 플로팅 컨트롤 바 */}
-      <div style={bottomBarStyle}>
-        <button
-          title="페이지 뷰"
-          style={{ ...styles.barBtn, ...(viewMode === 'page' ? styles.barBtnActive : {}) }}
-          onClick={() => setViewMode('page')}
-        >
-          페이지
-        </button>
-        <button
-          title="스크롤 뷰"
-          style={{ ...styles.barBtn, ...(viewMode === 'scroll' ? styles.barBtnActive : {}) }}
-          onClick={() => setViewMode('scroll')}
-        >
-          스크롤
-        </button>
-
-        <span style={styles.barDivider} />
-
+      <div style={leftRailStyle}>
         <button
           title="텍스트 선택"
-          style={{ ...styles.barBtn, ...(selectionMode === 'text' ? styles.barBtnActive : {}), fontWeight: 700 }}
+          style={{ ...styles.railBtn, ...(selectionMode === 'text' ? styles.railBtnActive : {}), fontWeight: 700 }}
           onClick={() => setSelectionMode('text')}
         >
           T
         </button>
         <button
           title="영역 선택"
-          style={{ ...styles.barBtn, ...(selectionMode === 'region' ? styles.barBtnActive : {}) }}
+          style={{ ...styles.railBtn, ...(selectionMode === 'region' ? styles.railBtnActive : {}) }}
           onClick={() => setSelectionMode('region')}
         >
-          ⬚
+          ⌗
         </button>
         <button
-          title="손 커서 (화면 이동)"
-          style={{ ...styles.barBtn, ...(selectionMode === 'pan' ? styles.barBtnActive : {}) }}
+          title="손 도구"
+          style={{ ...styles.railBtn, ...(selectionMode === 'pan' ? styles.railBtnActive : {}) }}
           onClick={() => setSelectionMode('pan')}
         >
-          ✋
+          ☝
         </button>
 
         {selectionMode === 'text' && viewMode === 'page' && !isMobile && (
-          <>
-            <span style={styles.barDivider} />
-            <button
-              title="현재 페이지 텍스트 전체 선택"
-              style={styles.barBtn}
-              onClick={handleSelectAll}
-            >
-              전체선택
-            </button>
-          </>
+          <button
+            title="현재 페이지 텍스트 전체 선택"
+            style={{ ...styles.railBtn, ...styles.railBtnSmall }}
+            onClick={handleSelectAll}
+          >
+            전체
+          </button>
         )}
+      </div>
 
-        <span style={styles.barDivider} />
+      {(indexing || indexed) && (
+        <div style={{ ...styles.indexBadge, ...(isMobile ? styles.indexBadgeMobile : {}), ...(indexed && !indexing ? styles.indexBadgeDone : {}) }}>
+          {indexing
+            ? (indexTotal > 0 ? `색인 ${indexProgress}/${indexTotal}` : '색인 중')
+            : '색인 완료'}
+        </div>
+      )}
 
-        {/* 색인 상태 배지 */}
-        {indexing && (
-          <span style={styles.indexBadge}>
-            ⟳ {indexTotal > 0 ? `${indexProgress}/${indexTotal}` : '색인 중'}
-          </span>
-        )}
-        {!indexing && indexed && (
-          <span style={{ ...styles.indexBadge, background: 'rgba(92,204,127,0.25)', color: '#5CCC7F' }}>
-            ✓ 색인
-          </span>
-        )}
-
-        <span style={{ ...styles.barSpacer, ...(isMobile ? styles.barSpacerMobile : {}) }} />
-
+      <div style={bottomDockStyle}>
         {SIDEBAR_TABS.map((tab) => {
           const isActive = sidebarOpen && activeTab === tab.key
           return (
@@ -1344,8 +1369,9 @@ export default function DocumentCanvas({
               key={tab.key}
               title={tab.label}
               style={{
-                ...styles.barBtn,
-                ...(isActive ? styles.barBtnActive : {}),
+                ...styles.dockBtn,
+                ...(isMobile ? styles.dockBtnMobile : {}),
+                ...(isActive ? styles.dockBtnActive : {}),
                 ...(!sidebarOpen ? { opacity: 0.4 } : {}),
               }}
               onClick={() => {
@@ -1447,12 +1473,12 @@ const styles = {
   outer: {
     flex: 1,
     overflow: 'auto',
-    background: '#e8e8e8',
+    background: '#f1f1f7',
     display: 'block',
-    padding: 24,
+    padding: '84px 28px 96px',
   },
   outerMobile: {
-    padding: '24px 12px 92px',
+    padding: '78px 12px 92px',
   },
   hint: { color: '#aaa', fontSize: 15, alignSelf: 'center' },
   loadingCenter: {
@@ -1467,7 +1493,7 @@ const styles = {
     height: 32,
     borderRadius: '50%',
     border: '3px solid #e0e0e0',
-    borderTopColor: '#6366f1',
+    borderTopColor: '#070761',
     animation: 'spin 0.8s linear infinite',
   },
   loadingText: { color: '#aaa', fontSize: 13 },
@@ -1476,7 +1502,8 @@ const styles = {
     display: 'block',
     width: 'fit-content',
     margin: '0 auto',
-    boxShadow: '0 2px 12px rgba(0,0,0,0.15)',
+    background: '#ffffff',
+    boxShadow: '0 16px 46px rgba(7,7,97,0.13)',
   },
   regionErrorToast: {
     position: 'absolute',
@@ -1564,60 +1591,102 @@ const styles = {
     cursor: 'pointer',
     flexShrink: 0,
   },
-  bottomBar: {
+  leftRail: {
     position: 'absolute',
-    bottom: 20,
-    left: '50%',
-    transform: 'translateX(-50%)',
-    // transform은 인라인에서 동적으로 설정
-    transformOrigin: 'center bottom',
+    top: 0,
+    left: 0,
     zIndex: 30,
     display: 'flex',
+    flexDirection: 'column',
     alignItems: 'center',
-    gap: 2,
-    background: 'rgba(26,26,26,0.82)',
-    backdropFilter: 'blur(8px)',
-    borderRadius: 12,
-    padding: '5px 8px',
-    boxShadow: '0 4px 16px rgba(0,0,0,0.22)',
+    gap: 12,
+    width: 50,
+    padding: '20px 0',
+    background: '#ffffff',
+    borderRight: '1px solid #efeff6',
+    boxShadow: '4px 0 18px rgba(7,7,97,0.04)',
     userSelect: 'none',
-    whiteSpace: 'nowrap',
-    flexWrap: 'nowrap',
-    maxWidth: 'calc(100% - 24px)',
-    overflowX: 'auto',
-    scrollbarWidth: 'none',
   },
-  bottomBarMobile: {
-    bottom: 12,
-    display: 'flex',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    rowGap: 4,
-    maxWidth: 'calc(100% - 20px)',
-    padding: '5px 7px',
-    overflowX: 'hidden',
+  leftRailMobile: {
+    width: 42,
+    padding: '14px 0',
+    gap: 8,
   },
-  barBtn: {
-    padding: '4px 10px',
-    borderRadius: 7,
+  railBtn: {
+    width: 34,
+    height: 34,
+    padding: 0,
+    borderRadius: 5,
     fontSize: 12,
-    fontWeight: 500,
-    color: 'rgba(255,255,255,0.7)',
+    fontWeight: 800,
+    color: '#111111',
     background: 'transparent',
     border: 'none',
     cursor: 'pointer',
     lineHeight: 1.3,
     transition: 'background 0.12s, color 0.12s',
   },
-  barBtnActive: {
-    background: 'rgba(255,255,255,0.18)',
-    color: '#fff',
-    fontWeight: 700,
+  railBtnSmall: {
+    fontSize: 10,
+    color: '#070761',
+    background: '#eeeef8',
+  },
+  railBtnActive: {
+    background: '#f0f0fb',
+    color: '#070761',
+    fontWeight: 900,
+  },
+  bottomDock: {
+    position: 'absolute',
+    left: '50%',
+    bottom: 22,
+    transform: 'translateX(-50%)',
+    zIndex: 30,
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '6px',
+    borderRadius: 28,
+    background: '#bcbcd8',
+    boxShadow: '0 10px 24px rgba(7,7,97,0.12)',
+    userSelect: 'none',
+    whiteSpace: 'nowrap',
+  },
+  bottomDockMobile: {
+    bottom: 12,
+    maxWidth: 'calc(100% - 24px)',
+    overflowX: 'auto',
+    scrollbarWidth: 'none',
+    gap: 2,
+  },
+  dockBtn: {
+    minWidth: 92,
+    minHeight: 36,
+    padding: '8px 15px',
+    borderRadius: 20,
+    fontSize: 13,
+    fontWeight: 850,
+    color: '#070761',
+    background: 'transparent',
+    border: 'none',
+    cursor: 'pointer',
+    lineHeight: 1.2,
+    transition: 'background 0.12s, color 0.12s',
+  },
+  dockBtnActive: {
+    background: '#070761',
+    color: '#ffffff',
+    fontWeight: 900,
+  },
+  dockBtnMobile: {
+    minWidth: 82,
+    padding: '8px 8px',
+    fontSize: 12,
   },
   barDivider: {
     width: 1,
     height: 16,
-    background: 'rgba(255,255,255,0.2)',
+    background: '#d7d7e8',
     margin: '0 4px',
     flexShrink: 0,
   },
@@ -1629,14 +1698,25 @@ const styles = {
     display: 'none',
   },
   indexBadge: {
+    position: 'absolute',
+    left: 62,
+    bottom: 30,
+    zIndex: 31,
     fontSize: 10,
-    fontWeight: 700,
-    padding: '2px 7px',
+    fontWeight: 900,
+    padding: '3px 8px',
     borderRadius: 10,
-    background: 'rgba(251,191,36,0.25)',
-    color: '#FBBF24',
+    background: '#eeeef8',
+    color: '#070761',
     whiteSpace: 'nowrap',
     flexShrink: 0,
+  },
+  indexBadgeDone: {
+    background: 'rgba(92,204,127,0.25)',
+    color: '#278348',
+  },
+  indexBadgeMobile: {
+    display: 'none',
   },
   barBtnDisabled: {
     opacity: 0.3,
@@ -1649,15 +1729,15 @@ const styles = {
     width: 40,
     height: 40,
     borderRadius: '50%',
-    background: 'rgba(26,26,26,0.75)',
-    color: '#fff',
+    background: 'rgba(255,255,255,0.95)',
+    color: '#070761',
     fontSize: 24,
     cursor: 'pointer',
     zIndex: 10,
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
-    border: 'none',
+    border: '1px solid rgba(7,7,97,0.1)',
     lineHeight: 1,
     transition: 'opacity 0.15s',
   },

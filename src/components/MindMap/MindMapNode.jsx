@@ -3,69 +3,74 @@ import { Handle, Position } from '@xyflow/react'
 import useDocumentStore from '../../store/documentStore'
 
 const SIZE = {
-  3: { width: 160, fontSize: 14, padding: '10px 14px', fontWeight: 700 },
-  2: { width: 136, fontSize: 13, padding: '8px 12px', fontWeight: 600 },
-  1: { width: 112, fontSize: 12, padding: '6px 10px', fontWeight: 500 },
+  3: { width: 178, fontSize: 14, padding: '10px 18px', fontWeight: 900 },
+  2: { width: 158, fontSize: 13, padding: '9px 15px', fontWeight: 800 },
+  1: { width: 146, fontSize: 12, padding: '8px 13px', fontWeight: 800 },
 }
 
 const GROUP = {
-  core:      { bg: '#fef3c7', border: '#f59e0b', text: '#92400e' },
-  process:   { bg: '#dbeafe', border: '#3b82f6', text: '#1e40af' },
-  structure: { bg: '#dcfce7', border: '#22c55e', text: '#166534' },
-  effect:    { bg: '#fce7f3', border: '#ec4899', text: '#9d174d' },
-  default:   { bg: '#f1f5f9', border: '#94a3b8', text: '#475569' },
+  root: { bg: '#070761', border: '#070761', text: '#ffffff', page: 'rgba(255,255,255,0.62)' },
+  core: { bg: '#070761', border: '#070761', text: '#ffffff', page: 'rgba(255,255,255,0.62)' },
+  process: { bg: '#e8fff4', border: '#41ffa7', text: '#070761', page: 'rgba(7,7,97,0.48)' },
+  structure: { bg: '#eeeef8', border: '#b9b9dc', text: '#070761', page: 'rgba(7,7,97,0.48)' },
+  effect: { bg: '#ffffff', border: '#41ffa7', text: '#070761', page: 'rgba(7,7,97,0.48)' },
+  example: { bg: '#f8f8ff', border: '#c8c8e6', text: '#070761', page: 'rgba(7,7,97,0.44)' },
+  application: { bg: '#ffffff', border: '#070761', text: '#070761', page: 'rgba(7,7,97,0.48)' },
+  default: { bg: '#f8f8fc', border: '#d7d7e8', text: '#070761', page: 'rgba(7,7,97,0.42)' },
 }
 
 export default function MindMapNode({ data }) {
   const [hovered, setHovered] = useState(false)
-  const setCurrentPage = useDocumentStore((s) => s.setCurrentPage)
+  const setCurrentPage = useDocumentStore((state) => state.setCurrentPage)
 
-  const sz  = SIZE[data.importance] ?? SIZE[2]
-  const col = GROUP[data.group]     ?? GROUP.default
+  const size = SIZE[data.importance] ?? SIZE[2]
+  const color = GROUP[data.group] ?? GROUP.default
+  const pageIndex = data.sources?.[0]?.pageIndex
 
   function handleClick() {
-    const firstSource = data.sources?.[0]
-    if (firstSource != null) {
-      setCurrentPage(firstSource.pageIndex + 1)
+    if (pageIndex != null) {
+      setCurrentPage(pageIndex + 1)
     }
   }
 
   return (
     <div
       style={{
-        width: sz.width,
-        background: col.bg,
-        border: `2px solid ${col.border}`,
-        borderRadius: 10,
-        padding: sz.padding,
-        cursor: data.sources?.length ? 'pointer' : 'default',
-        position: 'relative',
-        boxShadow: hovered ? '0 4px 14px rgba(0,0,0,0.15)' : '0 1px 4px rgba(0,0,0,0.08)',
-        transition: 'box-shadow 0.15s',
-        userSelect: 'none',
+        ...styles.node,
+        width: size.width,
+        padding: size.padding,
+        background: color.bg,
+        borderColor: color.border,
+        cursor: pageIndex != null ? 'pointer' : 'default',
+        boxShadow: hovered ? '0 6px 18px rgba(7,7,97,0.18)' : '0 2px 8px rgba(7,7,97,0.10)',
       }}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={handleClick}
     >
-      <Handle type="target" position={Position.Top}    style={handleStyle} />
-      <Handle type="source" position={Position.Bottom} style={handleStyle} />
+      <Handle type="target" position={Position.Left} style={handleStyle} />
+      <Handle type="source" position={Position.Right} style={handleStyle} />
 
-      <div style={{ fontSize: sz.fontSize, fontWeight: sz.fontWeight, color: col.text, textAlign: 'center', lineHeight: 1.35 }}>
+      <div
+        style={{
+          color: color.text,
+          fontSize: size.fontSize,
+          fontWeight: size.fontWeight,
+          lineHeight: '20px',
+          textAlign: 'center',
+          wordBreak: 'keep-all',
+        }}
+      >
         {data.label}
       </div>
 
-      {/* 페이지 이동 힌트 */}
-      {data.sources?.length > 0 && (
-        <div style={styles.pageHint}>p.{data.sources[0].pageIndex + 1}</div>
+      {pageIndex != null && (
+        <div style={{ ...styles.pageHint, color: color.page }}>p.{pageIndex + 1}</div>
       )}
 
-      {/* Hover 툴팁 */}
       {hovered && (data.detail || data.sources?.[0]?.quote) && (
         <div style={styles.tooltip}>
-          {data.detail && (
-            <div style={styles.tooltipDetail}>{data.detail}</div>
-          )}
+          {data.detail && <div style={styles.tooltipDetail}>{data.detail}</div>}
           {data.sources?.[0]?.quote && (
             <div style={styles.tooltipQuote}>"{data.sources[0].quote}"</div>
           )}
@@ -78,43 +83,49 @@ export default function MindMapNode({ data }) {
 const handleStyle = { width: 0, height: 0, opacity: 0, border: 'none', minWidth: 0, minHeight: 0 }
 
 const styles = {
+  node: {
+    minHeight: 38,
+    border: '2px solid',
+    borderRadius: 8,
+    position: 'relative',
+    userSelect: 'none',
+    transition: 'box-shadow 0.15s, transform 0.15s',
+  },
   pageHint: {
     position: 'absolute',
-    bottom: 3,
-    right: 5,
-    fontSize: 9,
+    right: 7,
+    bottom: 4,
     color: 'rgba(0,0,0,0.28)',
-    fontWeight: 500,
-    lineHeight: 1,
+    fontSize: 10,
+    lineHeight: '10px',
+    fontWeight: 700,
   },
   tooltip: {
     position: 'absolute',
     bottom: 'calc(100% + 8px)',
     left: '50%',
     transform: 'translateX(-50%)',
-    background: '#1a1a1a',
-    color: '#fff',
-    borderRadius: 8,
-    padding: '9px 11px',
-    width: 210,
-    zIndex: 9999,
+    width: 220,
+    zIndex: 20,
     pointerEvents: 'none',
-    boxShadow: '0 4px 16px rgba(0,0,0,0.32)',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: 6,
+    borderRadius: 6,
+    padding: '9px 11px',
+    background: '#111111',
+    color: '#ffffff',
+    boxShadow: '0 8px 20px rgba(0,0,0,0.24)',
   },
   tooltipDetail: {
     fontSize: 11,
-    lineHeight: 1.55,
+    lineHeight: '17px',
     color: 'rgba(255,255,255,0.9)',
   },
   tooltipQuote: {
-    fontSize: 10,
-    lineHeight: 1.5,
-    fontStyle: 'italic',
-    color: 'rgba(255,255,255,0.5)',
-    borderTop: '1px solid rgba(255,255,255,0.15)',
+    marginTop: 6,
     paddingTop: 6,
+    borderTop: '1px solid rgba(255,255,255,0.16)',
+    fontSize: 10,
+    lineHeight: '16px',
+    color: 'rgba(255,255,255,0.58)',
+    fontStyle: 'italic',
   },
 }

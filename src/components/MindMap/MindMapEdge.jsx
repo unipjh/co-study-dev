@@ -1,22 +1,31 @@
 import { BaseEdge, EdgeLabelRenderer, getBezierPath } from '@xyflow/react'
 
 const EDGE_COLOR = {
-  causes:      '#ef4444',
-  exemplifies: '#8b5cf6',
-  contrasts:   '#f97316',
-  contains:    '#64748b',
-  related:     '#94a3b8',
+  causes: '#070761',
+  exemplifies: '#278348',
+  contrasts: '#6f6fa8',
+  contains: '#8585b0',
+  related: '#8585b0',
 }
 
 export default function MindMapEdge({
-  id, sourceX, sourceY, targetX, targetY,
-  sourcePosition, targetPosition, data,
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  data,
 }) {
   const [edgePath, labelX, labelY] = getBezierPath({
-    sourceX, sourceY, sourcePosition,
-    targetX, targetY, targetPosition,
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
   })
-
   const color = EDGE_COLOR[data?.edgeType] ?? EDGE_COLOR.related
 
   return (
@@ -24,27 +33,29 @@ export default function MindMapEdge({
       <BaseEdge
         id={id}
         path={edgePath}
-        style={{ stroke: color, strokeWidth: 1.5, opacity: 0.75 }}
-        markerEnd={`url(#arrow-${data?.edgeType ?? 'related'})`}
+        style={{ stroke: color, strokeWidth: 2, opacity: 0.84 }}
       />
       {data?.label && (
         <EdgeLabelRenderer>
           <div
+            className="nodrag nopan"
             style={{
               position: 'absolute',
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY}px)`,
-              fontSize: 10,
-              fontWeight: 600,
-              color,
-              background: '#fff',
-              border: `1px solid ${color}`,
+              maxWidth: 132,
+              padding: '1px 7px',
               borderRadius: 4,
-              padding: '1px 5px',
-              pointerEvents: 'none',
+              border: `1px solid ${color}`,
+              background: '#ffffff',
+              color,
+              fontSize: 10,
+              lineHeight: '14px',
+              fontWeight: 800,
               whiteSpace: 'nowrap',
-              opacity: 0.9,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              pointerEvents: 'none',
             }}
-            className="nodrag nopan"
           >
             {data.label}
           </div>

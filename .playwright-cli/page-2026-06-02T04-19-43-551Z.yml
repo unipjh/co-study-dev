@@ -1,0 +1,38 @@
+- main [ref=e19]:
+  - complementary [ref=e20]:
+    - generic [ref=e21]:
+      - img "Co-Study" [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e24]: Cö
+          - generic [ref=e25]: "- Study"
+      - button "사이드바 접기" [ref=e26] [cursor=pointer]
+    - generic [ref=e28]:
+      - img "Co-Study profile" [ref=e29]
+      - generic [ref=e35]:
+        - strong [ref=e36]: 코워커
+        - generic [ref=e37]: playwright-test@example.com
+      - button "로그아웃" [ref=e38] [cursor=pointer]:
+        - img [ref=e39]
+  - generic [ref=e41]:
+    - generic [ref=e42]:
+      - heading "내 자료" [level=1] [ref=e43]
+      - generic [ref=e44] [cursor=pointer]: + 자료 추가
+    - generic [ref=e46]:
+      - img [ref=e47]
+      - textbox "자료 검색" [ref=e49]:
+        - /placeholder: 검색하기
+    - generic [ref=e50]:
+      - button "딥러닝" [ref=e60] [cursor=pointer]:
+        - generic [ref=e61]: ‹
+        - text: 딥러닝
+      - combobox "정렬" [ref=e51]:
+        - option "최신순" [selected]
+        - option "이름순"
+        - option "페이지순"
+    - article [ref=e63]:
+      - generic [ref=e64]: 미리보기 화면
+      - heading "ex_documents.pdf" [level=3] [ref=e65]
+      - paragraph [ref=e66]: 24일 전에 마지막 열람
+      - generic [ref=e67]:
+        - button "딥러닝" [ref=e68] [cursor=pointer]
+        - button "삭제" [ref=e69] [cursor=pointer]

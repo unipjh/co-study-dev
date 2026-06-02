@@ -3,6 +3,9 @@ import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore'
 import { db } from '../lib/firebase'
 import useAuthStore from '../store/authStore'
 import { questionAnswerId } from '../lib/studyIds'
+import { getGateQuestions } from '../lib/learningQuestionGate'
+
+export { getGateQuestions }
 
 function answersCol(uid, docId) {
   return collection(db, 'users', uid, 'documents', docId, 'questionAnswers')
@@ -34,13 +37,24 @@ export default function useLearningQuestionAnswers(docId) {
     return answer?.status === 'answered' || answer?.status === 'skipped'
   }, [getAnswer])
 
-  const unresolvedQuestions = useCallback((unit) => {
-    const questions = unit?.focusQuestions?.filter(Boolean) ?? []
+  const unresolvedQuestions = useCallback((unit, pageIndex = null) => {
+    const questions = getGateQuestions(unit, pageIndex)
     if (!unit?.id || questions.length === 0) return []
-    return questions.filter((question) => !isResolved(unit.id, question))
+    return questions.filter((question) => !isResolved(unit.id, question.statement))
   }, [isResolved])
 
-  const saveAnswer = useCallback(async ({ unitId, pageIndex, question, answer, status = 'answered', aiFeedback = null }) => {
+  const saveAnswer = useCallback(async ({
+    unitId,
+    pageIndex,
+    question,
+    answer,
+    selectedAnswer = null,
+    correctAnswer = null,
+    isCorrect = null,
+    explanation = '',
+    status = 'answered',
+    aiFeedback = null,
+  }) => {
     if (!uid || !docId || !unitId || !question) return null
     const id = questionAnswerId(unitId, question)
     const existing = answers.find((item) => item.id === id)
@@ -51,6 +65,10 @@ export default function useLearningQuestionAnswers(docId) {
       pageIndex: pageIndex ?? null,
       question,
       answer,
+      selectedAnswer,
+      correctAnswer,
+      isCorrect,
+      explanation,
       status,
       aiFeedback: aiFeedback ?? existing?.aiFeedback ?? null,
       createdAt: existing?.createdAt ?? now,

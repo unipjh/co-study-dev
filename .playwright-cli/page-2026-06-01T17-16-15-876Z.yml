@@ -1,0 +1,82 @@
+- generic [ref=e5]:
+  - generic [ref=e6]:
+    - generic [ref=e7]:
+      - button "문서 목록으로 돌아가기" [ref=e8] [cursor=pointer]: ‹
+      - generic "ex_documents.pdf" [ref=e9]
+    - generic "문서 보기 도구" [ref=e10]:
+      - generic [ref=e11]:
+        - button "축소" [ref=e12] [cursor=pointer]: "-"
+        - generic [ref=e13]: 100%
+        - button "확대" [ref=e14] [cursor=pointer]: +
+      - generic [ref=e16]:
+        - button "이전 페이지" [disabled] [ref=e17] [cursor=pointer]: ‹
+        - button "페이지 목록 열기" [ref=e18] [cursor=pointer]:
+          - text: 1/32
+          - generic [ref=e19]: ▾
+        - button "다음 페이지" [ref=e20] [cursor=pointer]: ›
+      - generic "보기 방식" [ref=e21]:
+        - button "페이지" [ref=e22] [cursor=pointer]
+        - button "스크롤" [ref=e23] [cursor=pointer]
+    - button "💡 팝업 질문 받기" [pressed] [ref=e25] [cursor=pointer]:
+      - generic [ref=e26]: 💡 팝업 질문 받기
+  - generic [ref=e29]:
+    - generic [ref=e30]:
+      - button "우선 이번 페이지 핵심인공신경망의 기본 원리와 딥러닝 용어를 이해한다. ∨" [ref=e32] [cursor=pointer]:
+        - generic [ref=e33]: 우선
+        - generic [ref=e34]:
+          - strong [ref=e35]: 이번 페이지 핵심
+          - text: 인공신경망의 기본 원리와 딥러닝 용어를 이해한다.
+        - generic [ref=e36]: ∨
+      - generic [ref=e40]:
+        - generic [ref=e41]:
+          - generic: "2."
+          - generic: 순방향
+          - generic: 신경망
+          - generic: 세종대학교
+          - generic: 인공지능데이터사이언스학과
+          - generic: 김정현
+          - generic: 딥러닝
+          - generic: 담당교수
+        - generic [ref=e42]:
+          - generic:
+            - generic: P hysical I ntelligence Lab.
+          - generic:
+            - generic: "1"
+      - button "‹" [disabled] [ref=e43] [cursor=pointer]
+      - button "›" [ref=e44] [cursor=pointer]
+      - generic [ref=e60]:
+        - button "T" [ref=e61] [cursor=pointer]
+        - button "⌗" [ref=e62] [cursor=pointer]
+        - button "☝" [ref=e63] [cursor=pointer]
+        - button "전체" [ref=e64] [cursor=pointer]
+      - generic [ref=e65]: 색인 완료
+      - generic [ref=e66]:
+        - button "💬 채팅" [ref=e67] [cursor=pointer]
+        - button "📝 메모" [ref=e68] [cursor=pointer]
+        - button "🧠 마인드맵" [ref=e69] [cursor=pointer]
+        - button "🧩 퀴즈" [ref=e70] [cursor=pointer]
+    - generic "드래그하여 너비 조정" [ref=e71]
+    - generic [ref=e72]:
+      - button "사이드바 닫기" [ref=e73] [cursor=pointer]: ×
+      - generic [ref=e75]:
+        - generic [ref=e77]:
+          - button "전체" [ref=e78] [cursor=pointer]
+          - button "단순" [ref=e79] [cursor=pointer]
+          - button "꼬리" [ref=e80] [cursor=pointer]
+          - button "맥락" [ref=e81] [cursor=pointer]
+        - generic [ref=e82]:
+          - generic [ref=e84]:
+            - blockquote [ref=e85]: 1. "– 오즈(odds)" (p.11)
+            - paragraph [ref=e87]: 이 내용을 쉽게 설명해줘
+          - generic [ref=e90]:
+            - generic [ref=e91]:
+              - text: 네, '오즈(odds)'는 아주 쉽게 말하면,
+              - strong [ref=e92]: 어떤 사건이 일어날 확률을 그 사건이 일어나지 않을 확률로 나눈 비율
+              - text: 이에요
+              - button "p.11" [ref=e93] [cursor=pointer]
+              - text: .
+            - generic [ref=e94]: 예를 들어, 동전을 던졌을 때 앞면이 나올 확률이 50%라고 하면, 뒷면(앞면이 안 나오는 경우)이 나올 확률도 50%겠죠? 이때 오즈는 50% / 50% = 1이 됩니다.
+            - generic [ref=e95]: 즉, 사건이 일어날 가능성이 일어나지 않을 가능성보다 얼마나 더 큰지를 숫자로 나타낸 것이라고 생각하면 돼요.
+        - generic [ref=e97]:
+          - textbox "질문을 입력하세요." [ref=e98]
+          - button "전송" [disabled] [ref=e99] [cursor=pointer]

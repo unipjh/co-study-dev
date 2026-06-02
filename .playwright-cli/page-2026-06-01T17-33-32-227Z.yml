@@ -1,0 +1,100 @@
+- generic [ref=e114]:
+  - generic [ref=e115]:
+    - generic [ref=e116]:
+      - button "문서 목록으로 돌아가기" [ref=e117] [cursor=pointer]: ‹
+      - generic "ex_documents.pdf" [ref=e118]
+    - generic "문서 보기 도구" [ref=e119]:
+      - generic [ref=e120]:
+        - button "축소" [ref=e121] [cursor=pointer]: "-"
+        - generic [ref=e122]: 100%
+        - button "확대" [ref=e123] [cursor=pointer]: +
+      - generic [ref=e125]:
+        - button "이전 페이지" [ref=e126] [cursor=pointer]: ‹
+        - button "페이지 목록 열기" [ref=e127] [cursor=pointer]:
+          - text: 11/32
+          - generic [ref=e128]: ▾
+        - button "다음 페이지" [ref=e129] [cursor=pointer]: ›
+      - generic "보기 방식" [ref=e130]:
+        - button "페이지" [ref=e131] [cursor=pointer]
+        - button "스크롤" [ref=e132] [cursor=pointer]
+    - button "💡 팝업 질문 받기" [active] [pressed] [ref=e134] [cursor=pointer]:
+      - generic [ref=e135]: 💡 팝업 질문 받기
+  - generic [ref=e138]:
+    - generic [ref=e139]:
+      - button "우선 이번 페이지 핵심인공신경망이 복잡한 문제를 해결하는 원리를 이해한다. ∨" [ref=e375] [cursor=pointer]:
+        - generic [ref=e142]: 우선
+        - generic [ref=e143]:
+          - strong [ref=e144]: 이번 페이지 핵심
+          - text: 인공신경망이 복잡한 문제를 해결하는 원리를 이해한다.
+        - generic [ref=e145]: ∨
+      - generic [ref=e149]:
+        - generic [ref=e376]:
+          - generic: "2.1"
+          - generic: 인공신경망과 딥러닝
+          - generic: 인공신경망 기초
+          - generic: Sigmoid
+          - generic: 활성함수
+          - generic: Sigmoid
+        - generic [ref=e377]:
+          - generic:
+            - generic: P hysical I ntelligence Lab.
+          - generic:
+            - generic: "11"
+          - generic: "▪ 이진 분류를 위한 로지스틱 회귀 – 오즈 (odds) • 어떤 사건 𝑋 가 일어날 확률과 일어나지 않을 확률의 비율 : – 로짓 (logit) • 오즈에 로그 함수를 취한 값 : ▪ 이진 분류를 위한 로지스틱 회귀 – 로지스틱 모델에서는 가중치가 적용된 입력과 로짓 사이에 선형 관계가 있다고 가정 – 확률 𝑝 에 관한 식으로 로짓을 변형하면"
+          - generic: logit 𝑝 = 𝑤 1 𝑥 1 + ⋯ + 𝑤 𝑚 𝑥 𝑚 + 𝑏 = ෍ 𝑖 = 1 𝑚 𝑤 𝑖 𝑥 𝑖 + 𝑏 = 𝒘 𝑇 𝒙 + 𝑏
+          - generic: log 𝑝 1 − 𝑝 = 𝒘 𝑇 𝒙 + 𝑏 = 𝑧 𝑝 1 − 𝑝 = 𝑒 𝑧 𝑝 = 1 1 + 𝑒 − 𝑧
+          - generic: 𝑃 ( 𝑋 ) 1 − 𝑃 ( 𝑋 )
+          - generic: logit 𝑃 ( 𝑋 ) = 𝑝 = log 𝑃 ( 𝑋 ) 1 − 𝑃 ( 𝑋 )
+      - button "‹" [ref=e152] [cursor=pointer]
+      - button "›" [ref=e153] [cursor=pointer]
+      - dialog "잠깐, 이해하고 있나요?" [ref=e384]:
+        - generic [ref=e385]:
+          - heading "🖐🏻 잠깐, 이해하고 있나요?" [level=2] [ref=e386]
+          - paragraph [ref=e387]: 지금까지 읽은 내용을 바탕으로 간단한 O/X 퀴즈를 풀어보세요.
+          - button "점검 팝업 닫기" [ref=e388] [cursor=pointer]: ×
+        - paragraph [ref=e390]: XOR 게이트 문제를 단층 신경망으로 해결할 수 없는 이유는 무엇이며, 다층 신경망은 어떻게 이 문제를 해결할 수 있나요?
+        - generic [ref=e391]:
+          - button "O" [ref=e392] [cursor=pointer]
+          - button "X" [ref=e393] [cursor=pointer]
+        - generic [ref=e394]:
+          - button "넘어가기" [ref=e395] [cursor=pointer]
+          - button "더 쉽게 설명" [ref=e396] [cursor=pointer]
+          - button "팝업 질문 끄기" [ref=e397] [cursor=pointer]
+      - generic [ref=e169]:
+        - button "T" [ref=e170] [cursor=pointer]
+        - button "⌗" [ref=e171] [cursor=pointer]
+        - button "☝" [ref=e172] [cursor=pointer]
+        - button "전체" [ref=e173] [cursor=pointer]
+      - generic [ref=e174]: 색인 완료
+      - generic [ref=e175]:
+        - button "💬 채팅" [ref=e176] [cursor=pointer]
+        - button "📝 메모" [ref=e177] [cursor=pointer]
+        - button "🧠 마인드맵" [ref=e178] [cursor=pointer]
+        - button "🧩 퀴즈" [ref=e179] [cursor=pointer]
+    - generic "드래그하여 너비 조정" [ref=e180]
+    - generic [ref=e181]:
+      - button "사이드바 닫기" [ref=e182] [cursor=pointer]: ×
+      - generic [ref=e184]:
+        - generic [ref=e186]:
+          - button "전체" [ref=e187] [cursor=pointer]
+          - button "단순" [ref=e188] [cursor=pointer]
+          - button "꼬리" [ref=e189] [cursor=pointer]
+          - button "맥락" [ref=e190] [cursor=pointer]
+        - generic [ref=e191]:
+          - generic [ref=e193]:
+            - blockquote [ref=e194]: 1. "– 오즈(odds)" (p.11)
+            - paragraph [ref=e196]: 이 내용을 쉽게 설명해줘
+          - generic [ref=e199]:
+            - generic [ref=e398]:
+              - text: 네, '오즈(odds)'는 아주 쉽게 말하면,
+              - strong [ref=e399]: 어떤 사건이 일어날 확률을 그 사건이 일어나지 않을 확률로 나눈 비율
+              - text: 이에요
+              - button "p.11" [ref=e400] [cursor=pointer]
+              - text: .
+            - generic [ref=e401]: 예를 들어, 동전을 던졌을 때 앞면이 나올 확률이 50%라고 하면, 뒷면(앞면이 안 나오는 경우)이 나올 확률도 50%겠죠? 이때 오즈는 50% / 50% = 1이 됩니다.
+            - generic [ref=e402]: 즉, 사건이 일어날 가능성이 일어나지 않을 가능성보다 얼마나 더 큰지를 숫자로 나타낸 것이라고 생각하면 돼요.
+        - generic [ref=e206]:
+          - textbox "질문을 입력하세요." [ref=e207]
+          - button "전송" [disabled] [ref=e208] [cursor=pointer]
+    - generic:
+      - generic: 추천 질문 제한을 켰습니다. 페이지를 넘기기 전 직접 답해보는 흐름이 유지됩니다.
