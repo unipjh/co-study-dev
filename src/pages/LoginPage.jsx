@@ -39,8 +39,8 @@ export default function LoginPage({ onSignIn, onDevSignIn, devAuthEnabled }) {
 
       <section className="login-hero" aria-label="Co-Study 로그인">
         <h1 className="login-heading">
-          <span>홍보 멘트</span>
-          <span>두 줄 정도</span>
+          <span>AI 기반 맞춤형 학습 스타일 최적화,</span>
+          <span>지금 바로 시작해 보세요.</span>
         </h1>
         <p className="login-subtitle">PDF를 함께 공부하는 공간</p>
         <div className="login-actions">

@@ -1081,7 +1081,7 @@ export default function DocumentCanvas({
   const pendingOverlayRects = pendingGroups
     .filter((g) => g.pageIndex === currentPage - 1)
     .flatMap((g) => g.rects)
-  const rightPageNavOffset = sidebarOpen && !isMobile ? sidebarWidth + 12 : 12
+  const rightPageNavOffset = 12
   const pageNavHidden = sidebarOpen && isMobile
   const canvasWrapperStyle = {
     ...styles.canvasWrapper,
@@ -1279,7 +1279,7 @@ export default function DocumentCanvas({
       {viewMode === 'page' && numPages > 0 && !pageNavHidden && (
         <>
           <button
-            style={{ ...styles.pageNavBtn, left: isMobile ? 12 : 170, opacity: currentPage <= 1 ? 0.25 : 0.65 }}
+            style={{ ...styles.pageNavBtn, left: isMobile ? 12 : 62, opacity: currentPage <= 1 ? 0.25 : 0.65 }}
             onClick={() => requestPageChange(currentPage - 1, { reason: 'button' })}
             disabled={currentPage <= 1}
           >
@@ -1353,11 +1353,9 @@ export default function DocumentCanvas({
         )}
       </div>
 
-      {(indexing || indexed) && (
-        <div style={{ ...styles.indexBadge, ...(isMobile ? styles.indexBadgeMobile : {}), ...(indexed && !indexing ? styles.indexBadgeDone : {}) }}>
-          {indexing
-            ? (indexTotal > 0 ? `색인 ${indexProgress}/${indexTotal}` : '색인 중')
-            : '색인 완료'}
+      {indexing && (
+        <div style={{ ...styles.indexBadge, ...(isMobile ? styles.indexBadgeMobile : {}) }}>
+          {indexTotal > 0 ? `색인 ${indexProgress}/${indexTotal}` : '색인 중'}
         </div>
       )}
 
