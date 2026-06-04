@@ -49,10 +49,26 @@ function read(path) {
 
 {
   const source = read('src/components/Canvas/DocumentCanvas.jsx')
-  assert.match(source, /rightPageNavOffset = sidebarOpen && !isMobile \? sidebarWidth \+ 12 : 12/)
+  assert.match(source, /leftPageNavOffset = \(isMobile \? 0 : LEFT_RAIL_WIDTH\) \+ PAGE_NAV_GUTTER/)
+  assert.match(source, /rightPageNavOffset = PAGE_NAV_GUTTER/)
   assert.doesNotMatch(source, /currentEl\?\.scrollIntoView\(\{ behavior: 'smooth', block: 'start' \}\)/)
   assert.match(source, /const shouldStayInScroll = viewMode === 'scroll'/)
   assert.match(source, /if \(shouldStayInScroll\)/)
+}
+
+{
+  const source = read('src/components/Canvas/LearningQuestionPopup.jsx')
+  const chooseHandler = source.match(/async function choose\(answer\) \{[\s\S]*?\n  \}/)?.[0] ?? ''
+  assert.match(source, /const \[activeQuestionKey, setActiveQuestionKey\]/)
+  assert.match(source, /function continueAfterFeedback/)
+  assert.match(source, /\{chosen && \(/)
+  assert.doesNotMatch(chooseHandler, /onMoveAfterResolved/)
+}
+
+{
+  const source = read('src/lib/studyIds.js')
+  assert.match(source, /pagePart = pageIndex == null \? 'all' : `p\$\{pageIndex\}`/)
+  assert.match(source, /`\$\{unitId \|\| 'unit'\}_\$\{pagePart\}_\$\{stableHash\(question\)\}`/)
 }
 
 {

@@ -4,6 +4,7 @@ import useDocumentIndex from '../../hooks/useDocumentIndex'
 import useQuizSessions from '../../hooks/useQuizSessions'
 import useLearningQuestionAnswers from '../../hooks/useLearningQuestionAnswers'
 import { stableHash } from '../../lib/studyIds'
+import { logInteraction } from '../../lib/interactionLogs'
 import {
   buildQuizHistory,
   filterNovelQuizItems,
@@ -158,7 +159,7 @@ export default function QuizPanel({ docId, annotations = [], currentPage = 1, qu
   useEffect(() => {
     if (loading || sessions.length === 0) return
     if (activeSessionId && sessions.some((session) => session.id === activeSessionId)) return
-    loadSession(sessions[0], { keepReviewFilter: true })
+    loadSession(sessions[0], { keepReviewFilter: true, track: false })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSessionId, loading, sessions])
 
@@ -210,6 +211,13 @@ export default function QuizPanel({ docId, annotations = [], currentPage = 1, qu
   async function handleGenerate() {
     const text = getScopeText()
     if (!text) {
+      logInteraction('quiz_generate_blocked', {
+        docId,
+        scope,
+        currentPage,
+        indexed,
+        source: 'quiz_panel',
+      })
       setError((scope === 'page' || scope === 'all') && !indexed
         ? '페이지 색인이 끝난 뒤 퀴즈를 만들 수 있습니다.'
         : '퀴즈를 만들 내용이 없습니다.')
@@ -223,6 +231,14 @@ export default function QuizPanel({ docId, annotations = [], currentPage = 1, qu
     setItems([])
     setAnswers({})
     setRevealed({})
+    logInteraction('quiz_generate', {
+      docId,
+      scope,
+      currentPage,
+      sourceTextLength: text.length,
+      existingSessionCount: sessions.length,
+      source: 'quiz_panel',
+    })
     try {
       const initialHistory = buildQuizHistory(sessions, {
         scope,
@@ -270,10 +286,25 @@ export default function QuizPanel({ docId, annotations = [], currentPage = 1, qu
 
   function handleAnswer(id, value) {
     setAnswers((prev) => ({ ...prev, [id]: value }))
+    logInteraction('quiz_answer_select', {
+      docId,
+      itemId: id,
+      scope,
+      currentPage,
+      valueLength: String(value ?? '').length,
+      source: 'quiz_panel',
+    })
   }
 
   function reveal(id) {
     setRevealed((prev) => ({ ...prev, [id]: true }))
+    logInteraction('quiz_answer_reveal', {
+      docId,
+      itemId: id,
+      scope,
+      currentPage,
+      source: 'quiz_panel',
+    })
   }
 
   function loadSession(session, options = {}) {
@@ -285,6 +316,15 @@ export default function QuizPanel({ docId, annotations = [], currentPage = 1, qu
     setError(null)
     setGenerationNotice(null)
     if (!options.keepReviewFilter) setReviewFilter(null)
+    if (options.track !== false) {
+      logInteraction('quiz_session_open', {
+        docId,
+        sessionId: session.id,
+        scope: session.scope,
+        pageNumber: session.pageNumber ?? null,
+        source: 'quiz_panel',
+      })
+    }
   }
 
   function handleSavedQuizDragStart(event) {
@@ -341,6 +381,13 @@ export default function QuizPanel({ docId, annotations = [], currentPage = 1, qu
   }, [answers, revealed])
 
   function sendQuestionToChat(item, value = answers[item.id] ?? '', pageIndex = currentPage - 1) {
+    logInteraction('quiz_question_send_to_chat', {
+      docId,
+      itemId: item.id,
+      pageIndex,
+      hasAnswer: Boolean(value),
+      source: 'quiz_panel',
+    })
     onSendToChat?.({
       id: `quiz_${Date.now()}`,
       type: 'quiz',

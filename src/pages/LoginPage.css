@@ -16,10 +16,11 @@
 
 .login-wordmark {
   position: absolute;
-  left: clamp(32px, 6.2vw, 120px);
-  top: clamp(32px, 6.3vh, 70px);
-  width: clamp(180px, 23.4vw, 450px);
+  left: clamp(24px, 4.4vw, 84px);
+  top: clamp(24px, 4.8vh, 52px);
+  width: clamp(150px, 14.6vw, 280px);
   height: auto;
+  z-index: 1;
 }
 
 .login-hero {
@@ -28,21 +29,22 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 180px 24px 120px;
+  padding: clamp(210px, 22vh, 250px) 24px 96px;
 }
 
 .login-heading {
   position: relative;
   display: flex;
   flex-direction: column;
+  align-items: center;
+  max-width: min(1500px, calc(100vw - 48px));
   margin: 0;
   color: #000000;
-  font-size: clamp(56px, 4.69vw, 90px);
+  font-size: clamp(44px, 4.35vw, 82px);
   line-height: 1.13;
   font-weight: 950;
   letter-spacing: 0;
-  text-align: left;
-  white-space: nowrap;
+  text-align: center;
 }
 
 .login-heading::before {
@@ -60,6 +62,7 @@
 .login-heading span {
   position: relative;
   z-index: 1;
+  white-space: nowrap;
 }
 
 .login-subtitle {
@@ -153,23 +156,197 @@
   text-align: center;
 }
 
+.login-page-tutorial {
+  min-height: 100vh;
+  overflow: auto;
+  background: #f7f8fb;
+}
+
+.login-wordmark-tutorial {
+  position: fixed;
+  z-index: 2;
+  left: 24px;
+  top: 24px;
+  width: 132px;
+}
+
+.tutorial-view {
+  min-height: 100vh;
+  width: min(1280px, calc(100vw - 48px));
+  margin: 0 auto;
+  padding: 118px 0 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.tutorial-header {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) auto minmax(180px, 1fr);
+  align-items: center;
+  gap: 16px;
+}
+
+.tutorial-title {
+  margin: 0;
+  color: #050510;
+  font-size: clamp(28px, 3vw, 44px);
+  line-height: 1.05;
+  font-weight: 950;
+  letter-spacing: 0;
+  text-align: center;
+}
+
+.tutorial-back,
+.tutorial-google {
+  min-height: 48px;
+  border-radius: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 20px;
+  border: 1px solid rgba(7, 7, 97, 0.16);
+  background: #ffffff;
+  color: var(--costudy-indigo);
+  font-size: 15px;
+  line-height: 1;
+  font-weight: 850;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, opacity 0.16s ease;
+}
+
+.tutorial-back {
+  justify-self: start;
+}
+
+.tutorial-google {
+  justify-self: end;
+  min-width: 180px;
+  background: var(--costudy-indigo);
+  color: #ffffff;
+}
+
+.tutorial-google svg {
+  display: none;
+}
+
+.tutorial-google:disabled {
+  opacity: 0.62;
+  cursor: wait;
+}
+
+.tutorial-back:hover,
+.tutorial-google:hover,
+.tutorial-tab:hover {
+  transform: translateY(-1px);
+}
+
+.tutorial-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(176px, 244px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: center;
+}
+
+.tutorial-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.tutorial-tab {
+  width: 100%;
+  min-height: 54px;
+  padding: 0 18px;
+  border-radius: 8px;
+  border: 1px solid rgba(7, 7, 97, 0.14);
+  background: #ffffff;
+  color: #1c1d2f;
+  font-size: 16px;
+  line-height: 1.2;
+  font-weight: 850;
+  text-align: left;
+  cursor: pointer;
+  transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+
+.tutorial-tab.is-active {
+  border-color: var(--costudy-indigo);
+  background: var(--costudy-indigo);
+  color: #ffffff;
+}
+
+.tutorial-player-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.tutorial-player-heading {
+  min-height: 28px;
+  color: #111322;
+  font-size: 20px;
+  line-height: 1.2;
+  font-weight: 900;
+}
+
+.tutorial-player {
+  width: min(100%, 960px);
+  aspect-ratio: 16 / 9;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #090a12;
+  box-shadow: 0 18px 52px rgba(8, 10, 24, 0.22);
+}
+
+.tutorial-video {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+  background: #090a12;
+}
+
+.tutorial-dev {
+  align-self: center;
+  margin-top: 0;
+}
+
+.tutorial-error {
+  align-self: center;
+}
+
 @media (max-width: 760px) {
   .login-page {
     overflow: auto;
   }
 
   .login-wordmark {
-    width: 190px;
+    left: 24px;
+    top: 28px;
+    width: 150px;
   }
 
   .login-hero {
-    justify-content: flex-end;
-    align-items: flex-start;
+    justify-content: center;
+    align-items: stretch;
     padding: 170px 24px 64px;
   }
 
   .login-heading {
-    font-size: clamp(48px, 15vw, 72px);
+    align-items: flex-start;
+    font-size: clamp(34px, 11vw, 52px);
+    text-align: left;
+  }
+
+  .login-heading span {
+    white-space: normal;
   }
 
   .login-subtitle {
@@ -190,5 +367,72 @@
     min-width: 0;
     height: 64px;
     font-size: 21px;
+  }
+
+  .login-wordmark-tutorial {
+    position: absolute;
+    left: 20px;
+    top: 24px;
+    width: 132px;
+  }
+
+  .tutorial-view {
+    width: min(100%, calc(100vw - 32px));
+    padding: 112px 0 32px;
+    gap: 18px;
+  }
+
+  .tutorial-header {
+    grid-template-columns: 1fr;
+    justify-items: stretch;
+    gap: 12px;
+  }
+
+  .tutorial-title {
+    order: -1;
+    text-align: left;
+    font-size: 34px;
+  }
+
+  .tutorial-back,
+  .tutorial-google {
+    width: 100%;
+    min-width: 0;
+    min-height: 48px;
+  }
+
+  .tutorial-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    align-items: stretch;
+  }
+
+  .tutorial-tabs {
+    flex-direction: row;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: thin;
+  }
+
+  .tutorial-tab {
+    flex: 0 0 auto;
+    width: auto;
+    min-width: 104px;
+    min-height: 48px;
+    padding: 0 14px;
+    text-align: center;
+    font-size: 15px;
+  }
+
+  .tutorial-player-heading {
+    align-self: flex-start;
+    font-size: 18px;
+  }
+
+  .tutorial-player {
+    width: 100%;
+    box-shadow: 0 12px 30px rgba(8, 10, 24, 0.18);
   }
 }

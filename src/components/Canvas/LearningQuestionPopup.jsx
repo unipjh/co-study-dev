@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import useLearningQuestionAnswers, { getGateQuestions } from '../../hooks/useLearningQuestionAnswers'
 
+function getQuestionKey(unitId, pageIndex, question) {
+  return [
+    unitId || 'unit',
+    pageIndex == null ? 'all' : pageIndex,
+    question?.id || question?.statement || 'question',
+  ].join(':')
+}
+
 export default function LearningQuestionPopup({
   docId,
   unit,
@@ -17,22 +25,54 @@ export default function LearningQuestionPopup({
   const questions = useMemo(() => getGateQuestions(unit, pageIndex).slice(0, 2), [unit, pageIndex])
   const pending = useMemo(() => unresolvedQuestions(unit, pageIndex), [unit, pageIndex, unresolvedQuestions])
   const firstPending = pending[0] ?? questions[0] ?? null
+  const firstPendingKey = firstPending ? getQuestionKey(unit?.id, pageIndex, firstPending) : null
+  const [activeQuestionKey, setActiveQuestionKey] = useState(firstPendingKey)
   const [selected, setSelected] = useState(null)
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
+    setActiveQuestionKey(firstPendingKey)
     setSelected(null)
-  }, [firstPending?.statement])
+  }, [unit?.id, pageIndex, mode, targetPage])
 
-  if (!unit?.id || questions.length === 0 || !firstPending) return null
+  useEffect(() => {
+    if (!activeQuestionKey && firstPendingKey) {
+      setActiveQuestionKey(firstPendingKey)
+    }
+  }, [activeQuestionKey, firstPendingKey])
+
+  const activeQuestion = questions.find((question) =>
+    getQuestionKey(unit?.id, pageIndex, question) === activeQuestionKey
+  ) ?? firstPending
+
+  if (!unit?.id || questions.length === 0 || !activeQuestion) return null
 
   const isBlocking = mode === 'blocked'
-  const saved = getAnswer(unit.id, firstPending.statement)
+  const activeKey = getQuestionKey(unit.id, pageIndex, activeQuestion)
+  const saved = getAnswer(unit.id, activeQuestion.statement, pageIndex)
   const chosen = selected ?? saved?.selectedAnswer ?? null
-  const correctAnswer = firstPending.answer === 'X' ? 'X' : 'O'
+  const correctAnswer = activeQuestion.answer === 'X' ? 'X' : 'O'
   const isCorrect = chosen ? chosen === correctAnswer : null
+  const nextPending = pending.find((question) =>
+    getQuestionKey(unit.id, pageIndex, question) !== activeKey
+  )
   const title = '잠깐, 이해하고 있나요?'
   const description = '지금까지 읽은 내용을 바탕으로 간단한 O/X 퀴즈를 풀어보세요.'
+  const continueLabel = nextPending
+    ? '다음 문항'
+    : isBlocking && targetPage
+      ? `${targetPage}페이지로 이동`
+      : '닫기'
+
+  function continueAfterFeedback() {
+    if (nextPending) {
+      setActiveQuestionKey(getQuestionKey(unit.id, pageIndex, nextPending))
+      setSelected(null)
+      return
+    }
+    if (isBlocking && targetPage) onMoveAfterResolved?.()
+    else onClose?.()
+  }
 
   async function choose(answer) {
     setSelected(answer)
@@ -41,17 +81,14 @@ export default function LearningQuestionPopup({
       await saveAnswer({
         unitId: unit.id,
         pageIndex,
-        question: firstPending.statement,
+        question: activeQuestion.statement,
         answer,
         selectedAnswer: answer,
         correctAnswer,
         isCorrect: answer === correctAnswer,
-        explanation: firstPending.explanation,
+        explanation: activeQuestion.explanation,
         status: 'answered',
       })
-      if (isBlocking && targetPage) {
-        onMoveAfterResolved?.()
-      }
     } finally {
       setSaving(false)
     }
@@ -59,16 +96,20 @@ export default function LearningQuestionPopup({
 
   async function skip() {
     setSaving(true)
+    const nextQuestion = nextPending
     try {
       await saveAnswer({
         unitId: unit.id,
         pageIndex,
-        question: firstPending.statement,
+        question: activeQuestion.statement,
         answer: 'skip',
         status: 'skipped',
-        explanation: firstPending.explanation,
+        explanation: activeQuestion.explanation,
       })
-      if (targetPage) onMoveAfterResolved?.()
+      if (nextQuestion) {
+        setActiveQuestionKey(getQuestionKey(unit.id, pageIndex, nextQuestion))
+        setSelected(null)
+      } else if (targetPage) onMoveAfterResolved?.()
       else onClose?.()
     } finally {
       setSaving(false)
@@ -76,7 +117,7 @@ export default function LearningQuestionPopup({
   }
 
   function askChat() {
-    onAskChat?.(`다음 O/X 점검 문항을 쉽게 설명해줘.\n\n문항: ${firstPending.statement}\n정답: ${correctAnswer}\n해설: ${firstPending.explanation || '(없음)'}`)
+    onAskChat?.(`다음 O/X 점검 문항을 쉽게 설명해줘.\n\n문항: ${activeQuestion.statement}\n정답: ${correctAnswer}\n해설: ${activeQuestion.explanation || '(없음)'}`)
   }
 
   return (
@@ -89,7 +130,7 @@ export default function LearningQuestionPopup({
         </div>
 
         <div style={styles.questionBox}>
-          <p style={styles.statement}>{firstPending.statement}</p>
+          <p style={styles.statement}>{activeQuestion.statement}</p>
         </div>
 
         <div style={styles.choiceGrid}>
@@ -101,26 +142,33 @@ export default function LearningQuestionPopup({
                 ...styles.choiceBtn,
                 ...(chosen === answer ? styles.choiceBtnSelected : {}),
                 ...(chosen === answer && isCorrect === false ? styles.choiceBtnWrong : {}),
+                ...(chosen && answer === correctAnswer ? styles.choiceBtnCorrect : {}),
               }}
               onClick={() => choose(answer)}
-              disabled={saving}
+              disabled={saving || Boolean(chosen)}
             >
               {answer}
             </button>
           ))}
         </div>
 
-        {chosen && !isBlocking && (
+        {chosen && (
           <div style={isCorrect ? styles.feedbackOk : styles.feedbackNo}>
             <strong>{isCorrect ? '맞았어요.' : `정답은 ${correctAnswer}예요.`}</strong>
-            {firstPending.explanation && <span>{firstPending.explanation}</span>}
+            {activeQuestion.explanation && <span>{activeQuestion.explanation}</span>}
           </div>
         )}
 
         <div style={styles.footer}>
-          <button type="button" style={styles.secondaryBtn} onClick={skip} disabled={saving}>
-            넘어가기
-          </button>
+          {!chosen ? (
+            <button type="button" style={styles.secondaryBtn} onClick={skip} disabled={saving}>
+              넘어가기
+            </button>
+          ) : (
+            <button type="button" style={styles.primaryBtn} onClick={continueAfterFeedback} disabled={saving}>
+              {continueLabel}
+            </button>
+          )}
           <button type="button" style={styles.secondaryBtn} onClick={askChat}>
             더 쉽게 설명
           </button>
@@ -237,6 +285,11 @@ const styles = {
     background: '#fff1f3',
     color: '#c01048',
   },
+  choiceBtnCorrect: {
+    borderColor: '#22c55e',
+    background: '#ecfdf3',
+    color: '#067647',
+  },
   feedbackOk: {
     display: 'grid',
     gap: 4,
@@ -269,6 +322,15 @@ const styles = {
     background: '#eeeef8',
     color: '#070761',
     padding: '0 13px',
+    fontSize: 12,
+    fontWeight: 900,
+  },
+  primaryBtn: {
+    minHeight: 34,
+    borderRadius: 7,
+    background: '#070761',
+    color: '#ffffff',
+    padding: '0 14px',
     fontSize: 12,
     fontWeight: 900,
   },

@@ -10,7 +10,7 @@ export default function App() {
   if (loading) {
     return (
       <div style={{ height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <p style={{ color: '#aaa', fontSize: 15 }}>로딩 중...</p>
+        <p style={{ color: '#aaa', fontSize: 15 }}>로딩중</p>
       </div>
     )
   }

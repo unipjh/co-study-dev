@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import useMindMap from '../../hooks/useMindMap'
 import MindMapCanvas from '../MindMap/MindMapCanvas'
 import useDocumentStore from '../../store/documentStore'
+import { logInteraction } from '../../lib/interactionLogs'
 
 const PROGRESS_LABELS = ['', '학습 흐름 노드 설계 중...', '논리 관계 정렬 중...', '원문 근거 연결 중...']
 
@@ -26,12 +27,38 @@ export default function MindMapPanel({ docId }) {
   const noDoc = !docId || !pdfBlob
   const mapLabel = formatMapLabel(activeMap)
 
+  function handleGenerate(scope) {
+    logInteraction('mindmap_generate', {
+      docId,
+      scope,
+      currentPage,
+      source: 'mindmap_panel',
+    })
+    generate(scope)
+  }
+
+  function handleLoad(mapId) {
+    if (!mapId) return
+    logInteraction('mindmap_open_saved', {
+      docId,
+      mapId,
+      source: 'mindmap_panel',
+    })
+    load(mapId)
+  }
+
   function handleDeleteClick() {
     if (!activeMap) return
 
     if (confirmDelete) {
       clearTimeout(confirmTimerRef.current)
       remove(activeMap.id)
+      logInteraction('mindmap_delete', {
+        docId,
+        mapId: activeMap.id,
+        scope: activeMap.scope,
+        source: 'mindmap_panel',
+      })
       setConfirmDelete(false)
       return
     }
@@ -48,7 +75,7 @@ export default function MindMapPanel({ docId }) {
             type="button"
             style={{ ...styles.primaryButton, opacity: (noDoc || generating) ? 0.45 : 1 }}
             disabled={noDoc || generating}
-            onClick={() => generate('full')}
+            onClick={() => handleGenerate('full')}
           >
             전체 생성
           </button>
@@ -56,7 +83,7 @@ export default function MindMapPanel({ docId }) {
             type="button"
             style={{ ...styles.secondaryButton, opacity: (noDoc || generating) ? 0.45 : 1 }}
             disabled={noDoc || generating}
-            onClick={() => generate('page')}
+            onClick={() => handleGenerate('page')}
           >
             현재 페이지 ({currentPage}p)
           </button>
@@ -66,7 +93,7 @@ export default function MindMapPanel({ docId }) {
           <select
             style={styles.mapSelect}
             value={activeMap?.id ?? ''}
-            onChange={(e) => load(e.target.value)}
+            onChange={(e) => handleLoad(e.target.value)}
             aria-label="마인드맵 선택"
           >
             <option value="">이전 마인드맵 선택</option>

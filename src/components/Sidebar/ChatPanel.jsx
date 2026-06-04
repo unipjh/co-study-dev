@@ -10,6 +10,7 @@ import useLearningUnits from '../../hooks/useLearningUnits'
 import useLearningQuestionAnswers from '../../hooks/useLearningQuestionAnswers'
 import { getDisplayColor } from '../../lib/colorUtils'
 import useDocumentStore from '../../store/documentStore'
+import { logInteraction } from '../../lib/interactionLogs'
 import {
   buildContextPackage,
   classifyEvidenceStatus,
@@ -100,6 +101,15 @@ export default function ChatPanel({
     setError(null)
     setIsStreaming(true)
     setStreamingText('')
+    logInteraction('chat_send', {
+      docId,
+      currentPage,
+      messageLength: text.length,
+      hasContext,
+      contextCount: contextAnnotations.length,
+      indexed,
+      source: overrideText ? 'auto_prompt' : 'composer',
+    })
 
     try {
       const topChunks = await search(text)
@@ -189,7 +199,7 @@ export default function ChatPanel({
   }
 
   async function checkSuggestedAnswer(question) {
-    const saved = getAnswer(currentUnit?.id, question)
+    const saved = getAnswer(currentUnit?.id, question, currentPage > 0 ? currentPage - 1 : null)
     const answerText = saved?.answer?.trim() || '(빈 답변)'
     await handleSend(`다음 추천 질문에 대한 내 답변을 정답 관점에서 확인해줘.\n\n질문: ${question}\n내 답변: ${answerText}`)
   }
@@ -239,7 +249,7 @@ export default function ChatPanel({
           {suggestedOpen && (
             <div style={styles.suggestedList}>
               {suggestedQuestions.map((question) => {
-                const saved = getAnswer(currentUnit?.id, question)
+                const saved = getAnswer(currentUnit?.id, question, currentPage > 0 ? currentPage - 1 : null)
                 const isOpen = openQuestion === question
                 const draft = draftAnswers[question] ?? saved?.answer ?? ''
                 const resolved = saved?.status === 'answered' || saved?.status === 'skipped'

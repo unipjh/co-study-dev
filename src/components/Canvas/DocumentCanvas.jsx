@@ -11,6 +11,7 @@ import useLearningUnits from '../../hooks/useLearningUnits'
 import useLearningQuestionAnswers, { getGateQuestions } from '../../hooks/useLearningQuestionAnswers'
 import { buildLearningUnitsFromChunks, findUnitForPage } from '../../lib/learningUnits'
 import { buildContextPackage, composePrompt } from '../../lib/ai/contextPipeline'
+import { logInteraction } from '../../lib/interactionLogs'
 import HighlightLayer from './HighlightLayer'
 import SelectionToolbar from './SelectionToolbar'
 import SelectionActionPopup from './SelectionActionPopup'
@@ -74,6 +75,9 @@ const SIDEBAR_TABS = [
   { key: 'mindmap', label: '🧠 마인드맵' },
   { key: 'quiz',    label: '🧩 퀴즈' },
 ]
+const LEFT_RAIL_WIDTH = 50
+const LEFT_RAIL_WIDTH_MOBILE = 42
+const PAGE_NAV_GUTTER = 12
 
 export default function DocumentCanvas({
   docId,
@@ -620,8 +624,24 @@ export default function DocumentCanvas({
     sel.removeAllRanges()
     sel.addRange(range)
 
+    logInteraction('page_select_all', {
+      docId,
+      pageIndex: currentPage - 1,
+      source: 'document_canvas',
+    })
     handleMouseUp()
-  }, [selectionMode, viewMode, handleMouseUp])
+  }, [selectionMode, viewMode, handleMouseUp, docId, currentPage])
+
+  function handleSelectionModeChange(mode) {
+    setSelectionMode(mode)
+    logInteraction('selection_mode_change', {
+      docId,
+      mode,
+      previousMode: selectionMode,
+      currentPage,
+      source: 'document_canvas',
+    })
+  }
 
   function getUnitIdForPage(pageIndex) {
     const unit = getUnitForPage(pageIndex) ?? findUnitForPage(candidateUnits, pageIndex)
@@ -818,6 +838,15 @@ export default function DocumentCanvas({
   function handleSelectionSave(color, content) {
     if (!selection) return
     const groups = [...pendingGroups, selection]
+    logInteraction('annotation_save_click', {
+      docId,
+      pageIndex: selection.pageIndex,
+      color,
+      hasMemo: Boolean(content?.trim()),
+      groupCount: groups.length,
+      isRegion: Boolean(selection.isRegion),
+      source: 'document_canvas',
+    })
     addAnnotation(groups, color, content)
     window.getSelection()?.removeAllRanges()
     setSelection(null)
@@ -892,6 +921,13 @@ export default function DocumentCanvas({
   function handleSendSelectionToChat() {
     const context = buildSelectionContext()
     if (!context) return
+    logInteraction('selection_send_to_chat', {
+      docId,
+      pageIndex: context.pageIndex,
+      textLength: context.text?.length ?? 0,
+      groupCount: pendingGroups.length + 1,
+      source: 'document_canvas',
+    })
     onSendToChat?.(context)
     handleSelectionClose()
   }
@@ -899,6 +935,12 @@ export default function DocumentCanvas({
   function handleCreateQuizFromSelection() {
     const context = buildSelectionContext()
     if (!context) return
+    logInteraction('selection_quiz_create', {
+      docId,
+      pageIndex: context.pageIndex,
+      textLength: context.text?.length ?? 0,
+      source: 'document_canvas',
+    })
     onCreateQuiz?.({
       scope: 'selection',
       title: '선택 텍스트',
@@ -909,6 +951,11 @@ export default function DocumentCanvas({
   }
 
   function handleCreateQuizFromPage(pageIndex = currentPage - 1) {
+    logInteraction('page_quiz_create', {
+      docId,
+      pageIndex,
+      source: 'document_canvas',
+    })
     onCreateQuiz?.({
       scope: 'page',
       title: `${pageIndex + 1}p`,
@@ -919,6 +966,12 @@ export default function DocumentCanvas({
   function handleSummarizePage(pageIndex = currentPage - 1) {
     const chunk = getChunkByPage(pageIndex)
     const pageText = chunk?.text?.trim()
+    logInteraction('page_summary_request', {
+      docId,
+      pageIndex,
+      hasPageText: Boolean(pageText),
+      source: 'document_canvas',
+    })
     onSendToChat?.({
       id: `page_summary_${pageIndex}_${Date.now()}`,
       docId,
@@ -993,6 +1046,11 @@ export default function DocumentCanvas({
       setTimeout(() => setRegionError(null), 3000)
       return
     }
+    logInteraction('region_send_to_chat', {
+      docId,
+      pageIndex: selection.pageIndex,
+      source: 'document_canvas',
+    })
     onSendToChat?.({
       id:        `region_${Date.now()}`,
       type:      'region',
@@ -1031,6 +1089,13 @@ export default function DocumentCanvas({
   async function handleAITutor() {
     if (!selection) return
     const saved = selection
+    logInteraction('ai_tutor_request', {
+      docId,
+      pageIndex: saved.pageIndex,
+      textLength: saved.text?.length ?? 0,
+      isRegion: Boolean(saved.isRegion),
+      source: 'document_canvas',
+    })
     setAiState({ selectionInfo: saved })
     window.getSelection()?.removeAllRanges()
     setSelection(null)
@@ -1060,6 +1125,12 @@ export default function DocumentCanvas({
 
   function handleAISaveAsMemo() {
     if (!aiState || !response) return
+    logInteraction('ai_response_save_as_memo', {
+      docId,
+      pageIndex: aiState.selectionInfo.pageIndex,
+      responseLength: response.length,
+      source: 'document_canvas',
+    })
     addAnnotation([aiState.selectionInfo], 'purple', response)
     setAiState(null)
     reset()
@@ -1067,6 +1138,11 @@ export default function DocumentCanvas({
 
   function handleAISendToChat() {
     if (!aiState) return
+    logInteraction('ai_response_send_to_chat', {
+      docId,
+      pageIndex: aiState.selectionInfo.pageIndex,
+      source: 'document_canvas',
+    })
     onSendToChat?.({
       id:        `ai_${Date.now()}`,
       text:      aiState.selectionInfo.text,
@@ -1081,7 +1157,8 @@ export default function DocumentCanvas({
   const pendingOverlayRects = pendingGroups
     .filter((g) => g.pageIndex === currentPage - 1)
     .flatMap((g) => g.rects)
-  const rightPageNavOffset = 12
+  const leftPageNavOffset = (isMobile ? 0 : LEFT_RAIL_WIDTH) + PAGE_NAV_GUTTER
+  const rightPageNavOffset = PAGE_NAV_GUTTER
   const pageNavHidden = sidebarOpen && isMobile
   const canvasWrapperStyle = {
     ...styles.canvasWrapper,
@@ -1098,6 +1175,7 @@ export default function DocumentCanvas({
   }
   const leftRailStyle = {
     ...styles.leftRail,
+    width: isMobile ? LEFT_RAIL_WIDTH_MOBILE : LEFT_RAIL_WIDTH,
     ...(isMobile ? styles.leftRailMobile : {}),
   }
   const bottomDockStyle = {
@@ -1110,7 +1188,7 @@ export default function DocumentCanvas({
         <div style={styles.outer}>
           <div style={styles.loadingCenter}>
             <div style={styles.spinner} />
-            <p style={styles.loadingText}>臾몄꽌瑜?遺덈윭?ㅻ뒗 以?..</p>
+            <p style={styles.loadingText}>로딩중</p>
           </div>
         </div>
       </div>
@@ -1145,7 +1223,7 @@ export default function DocumentCanvas({
           file={pdfFile}
           onLoadSuccess={({ numPages: n }) => setNumPages(n)}
           onLoadError={(err) => console.error('PDF load error:', err)}
-          loading={<div style={styles.loadingCenter}><div style={styles.spinner} /><p style={styles.loadingText}>PDF ?뚯떛 以?..</p></div>}
+          loading={<div style={styles.loadingCenter}><div style={styles.spinner} /><p style={styles.loadingText}>로딩중</p></div>}
         >
           {viewMode === 'page' ? (
             <div
@@ -1279,7 +1357,7 @@ export default function DocumentCanvas({
       {viewMode === 'page' && numPages > 0 && !pageNavHidden && (
         <>
           <button
-            style={{ ...styles.pageNavBtn, left: isMobile ? 12 : 62, opacity: currentPage <= 1 ? 0.25 : 0.65 }}
+            style={{ ...styles.pageNavBtn, left: leftPageNavOffset, opacity: currentPage <= 1 ? 0.25 : 0.65 }}
             onClick={() => requestPageChange(currentPage - 1, { reason: 'button' })}
             disabled={currentPage <= 1}
           >
@@ -1323,21 +1401,21 @@ export default function DocumentCanvas({
         <button
           title="텍스트 선택"
           style={{ ...styles.railBtn, ...(selectionMode === 'text' ? styles.railBtnActive : {}), fontWeight: 700 }}
-          onClick={() => setSelectionMode('text')}
+          onClick={() => handleSelectionModeChange('text')}
         >
           T
         </button>
         <button
           title="영역 선택"
           style={{ ...styles.railBtn, ...(selectionMode === 'region' ? styles.railBtnActive : {}) }}
-          onClick={() => setSelectionMode('region')}
+          onClick={() => handleSelectionModeChange('region')}
         >
           ⌗
         </button>
         <button
           title="손 도구"
           style={{ ...styles.railBtn, ...(selectionMode === 'pan' ? styles.railBtnActive : {}) }}
-          onClick={() => setSelectionMode('pan')}
+          onClick={() => handleSelectionModeChange('pan')}
         >
           ☝
         </button>
@@ -1598,7 +1676,7 @@ const styles = {
     flexDirection: 'column',
     alignItems: 'center',
     gap: 12,
-    width: 50,
+    width: LEFT_RAIL_WIDTH,
     padding: '20px 0',
     background: '#ffffff',
     borderRight: '1px solid #efeff6',
@@ -1606,7 +1684,7 @@ const styles = {
     userSelect: 'none',
   },
   leftRailMobile: {
-    width: 42,
+    width: LEFT_RAIL_WIDTH_MOBILE,
     padding: '14px 0',
     gap: 8,
   },

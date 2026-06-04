@@ -4,6 +4,8 @@ import useDocumentList from '../hooks/useDocumentList'
 import useDocumentUpload from '../hooks/useDocumentUpload'
 import useAuth from '../hooks/useAuth'
 import CoStudyLogo, { CoStudyMark } from '../components/Brand/CoStudyLogo'
+import InteractionLogDashboard from '../components/InteractionLogDashboard'
+import { logInteraction } from '../lib/interactionLogs'
 import './LibraryPage.css'
 
 const SORT_OPTIONS = [
@@ -27,6 +29,14 @@ function SearchIcon() {
   return (
     <svg className="library-search-icon" viewBox="0 0 24 24" aria-hidden="true">
       <path d="M10.8 18.1a7.3 7.3 0 1 1 0-14.6 7.3 7.3 0 0 1 0 14.6Zm5.2-2.1 4.5 4.5" />
+    </svg>
+  )
+}
+
+function DashboardIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4 13h6v7H4zM14 4h6v16h-6zM4 4h6v5H4z" />
     </svg>
   )
 }
@@ -91,6 +101,7 @@ export default function LibraryPage() {
   const [query, setQuery] = useState('')
   const [activeFolder, setActiveFolder] = useState(null)
   const [editingFolder, setEditingFolder] = useState(null)
+  const [logDashboardOpen, setLogDashboardOpen] = useState(false)
 
   const folders = useMemo(() => {
     const map = new Map()
@@ -131,6 +142,11 @@ export default function LibraryPage() {
     event.stopPropagation()
     if (!window.confirm(`"${doc.name}" 자료를 삭제할까요?`)) return
     await remove(doc.docId, doc.storagePath)
+    logInteraction('document_delete', {
+      docId: doc.docId,
+      name: doc.name,
+      source: 'library',
+    })
   }
 
   function startFolderEdit(event, doc) {
@@ -141,6 +157,11 @@ export default function LibraryPage() {
   async function commitFolderEdit() {
     if (!editingFolder) return
     await moveToFolder(editingFolder.docId, editingFolder.value.trim() || null)
+    logInteraction('document_folder_change', {
+      docId: editingFolder.docId,
+      folder: editingFolder.value.trim() || null,
+      source: 'library',
+    })
     setEditingFolder(null)
   }
 
@@ -148,6 +169,49 @@ export default function LibraryPage() {
     if (!window.confirm(`"${folderName}" 폴더를 비울까요?\n문서는 유지되고 폴더 분류만 해제됩니다.`)) return
     if (activeFolder === folderName) setActiveFolder(null)
     await deleteFolder(folderName)
+    logInteraction('folder_clear', {
+      folder: folderName,
+      source: 'library',
+    })
+  }
+
+  function handleOpenDocument(doc) {
+    logInteraction('document_open', {
+      docId: doc.docId,
+      name: doc.name,
+      folder: doc.folder ?? null,
+      source: 'library',
+    })
+    navigate(`/doc/${doc.docId}`)
+  }
+
+  function handleOpenFolder(folderName) {
+    logInteraction('folder_open', {
+      folder: folderName,
+      source: 'library',
+    })
+    setActiveFolder(folderName)
+  }
+
+  function handleBackToRootFolder() {
+    logInteraction('folder_back_to_root', {
+      folder: activeFolder,
+      source: 'library',
+    })
+    setActiveFolder(null)
+  }
+
+  function handleSortChange(value) {
+    setSortBy(value)
+    logInteraction('library_sort_change', {
+      sortBy: value,
+      source: 'library',
+    })
+  }
+
+  function handleOpenLogDashboard() {
+    logInteraction('log_dashboard_open', { source: 'library' })
+    setLogDashboardOpen(true)
   }
 
   return (
@@ -159,6 +223,16 @@ export default function LibraryPage() {
             <span />
           </button>
         </div>
+
+        <button
+          type="button"
+          className="library-log-dashboard-button"
+          onClick={handleOpenLogDashboard}
+          aria-label="사용자 로그 대시보드 열기"
+          title="사용자 로그"
+        >
+          <DashboardIcon />
+        </button>
 
         <div className="library-account">
           <CoStudyMark className="library-avatar" title="Co-Study profile" />
@@ -209,14 +283,14 @@ export default function LibraryPage() {
 
         <div className="library-controls">
           {activeFolder ? (
-            <button type="button" className="library-folder-heading" onClick={() => setActiveFolder(null)}>
+            <button type="button" className="library-folder-heading" onClick={handleBackToRootFolder}>
               <span aria-hidden="true">‹</span>
               {activeFolder}
             </button>
           ) : (
             <span className="library-folder-heading-placeholder" />
           )}
-          <select value={sortBy} onChange={(event) => setSortBy(event.target.value)} aria-label="정렬">
+          <select value={sortBy} onChange={(event) => handleSortChange(event.target.value)} aria-label="정렬">
             {SORT_OPTIONS.map((option) => (
               <option key={option.key} value={option.key}>{option.label}</option>
             ))}
@@ -235,7 +309,7 @@ export default function LibraryPage() {
                   name={folder.name}
                   count={folder.count}
                   active={index === 2}
-                  onClick={() => setActiveFolder(folder.name)}
+                  onClick={() => handleOpenFolder(folder.name)}
                 />
                 <button
                   type="button"
@@ -253,7 +327,7 @@ export default function LibraryPage() {
                 key={doc.docId}
                 doc={doc}
                 accent={index % 2 === 1 ? 'mint' : 'indigo'}
-                onOpen={() => navigate(`/doc/${doc.docId}`)}
+                onOpen={() => handleOpenDocument(doc)}
                 editingFolder={editingFolder}
                 onStartFolderEdit={(event) => startFolderEdit(event, doc)}
                 onFolderChange={(value) => setEditingFolder((prev) => ({ ...prev, value }))}
@@ -272,6 +346,11 @@ export default function LibraryPage() {
             <button type="button" onClick={() => fileInputRef.current?.click()}>자료 추가하기</button>
           </div>
         )}
+
+        <InteractionLogDashboard
+          open={logDashboardOpen}
+          onClose={() => setLogDashboardOpen(false)}
+        />
       </section>
     </main>
   )

@@ -4,6 +4,7 @@ import { doc, setDoc } from 'firebase/firestore'
 import { nanoid } from 'nanoid'
 import { storage, db } from '../lib/firebase'
 import useAuthStore from '../store/authStore'
+import { logInteraction } from '../lib/interactionLogs'
 
 /**
  * PDF 파일을 Firebase Storage에 업로드하고
@@ -48,6 +49,13 @@ export default function useDocumentUpload() {
             folder:      null,
           }
           await setDoc(doc(db, 'users', uid, 'documents', docId), meta)
+          logInteraction('document_upload', {
+            docId,
+            name: file.name,
+            size: file.size,
+            type: file.type,
+            source: 'library',
+          })
           setUploading(false)
           setProgress(100)
           resolve(meta)

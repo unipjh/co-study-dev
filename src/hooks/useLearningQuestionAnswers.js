@@ -27,20 +27,20 @@ export default function useLearningQuestionAnswers(docId) {
     return unsub
   }, [uid, docId])
 
-  const getAnswer = useCallback((unitId, question) => {
-    const id = questionAnswerId(unitId, question)
+  const getAnswer = useCallback((unitId, question, pageIndex = null) => {
+    const id = questionAnswerId(unitId, question, pageIndex)
     return answers.find((item) => item.id === id) ?? null
   }, [answers])
 
-  const isResolved = useCallback((unitId, question) => {
-    const answer = getAnswer(unitId, question)
+  const isResolved = useCallback((unitId, question, pageIndex = null) => {
+    const answer = getAnswer(unitId, question, pageIndex)
     return answer?.status === 'answered' || answer?.status === 'skipped'
   }, [getAnswer])
 
   const unresolvedQuestions = useCallback((unit, pageIndex = null) => {
     const questions = getGateQuestions(unit, pageIndex)
     if (!unit?.id || questions.length === 0) return []
-    return questions.filter((question) => !isResolved(unit.id, question.statement))
+    return questions.filter((question) => !isResolved(unit.id, question.statement, pageIndex))
   }, [isResolved])
 
   const saveAnswer = useCallback(async ({
@@ -56,7 +56,7 @@ export default function useLearningQuestionAnswers(docId) {
     aiFeedback = null,
   }) => {
     if (!uid || !docId || !unitId || !question) return null
-    const id = questionAnswerId(unitId, question)
+    const id = questionAnswerId(unitId, question, pageIndex)
     const existing = answers.find((item) => item.id === id)
     const now = new Date().toISOString()
     const payload = {

@@ -12,6 +12,7 @@ import SidePanel from '../components/Sidebar/SidePanel'
 import useAnnotation from '../hooks/useAnnotation'
 import useLearningUnits from '../hooks/useLearningUnits'
 import useLearningQuestionAnswers, { getGateQuestions } from '../hooks/useLearningQuestionAnswers'
+import { logInteraction } from '../lib/interactionLogs'
 
 const SIDEBAR_MIN_RATIO = 0.2
 const SIDEBAR_MAX_RATIO = 0.5
@@ -179,11 +180,22 @@ export default function ViewerPage() {
 
   // [A1] 탭 변경 시 사이드바 항상 열기
   function handleTabChange(tab) {
+    logInteraction('sidebar_tab_change', {
+      docId,
+      tab,
+      previousTab: activeTab,
+      source: 'viewer',
+    })
     setActiveTab(tab)
     setSidebarOpen(true)
   }
 
   function showSuggestedQuestions() {
+    logInteraction('suggested_questions_focus', {
+      docId,
+      currentPage,
+      source: 'viewer',
+    })
     setActiveTab('chat')
     setSidebarOpen(true)
     setFocusSuggestedTick(Date.now())
@@ -193,6 +205,11 @@ export default function ViewerPage() {
     setQuestionGateEnabled((prev) => {
       const next = !prev
       localStorage.setItem('costudy:questionGateEnabled', String(next))
+      logInteraction('question_gate_toggle', {
+        docId,
+        enabled: next,
+        source: 'viewer',
+      })
       showToast(next
         ? '추천 질문 제한을 켰습니다. 페이지를 넘기기 전 직접 답해보는 흐름이 유지됩니다.'
         : '추천 질문 제한을 껐습니다. 추천 질문은 남아 있지만 페이지 이동은 자유롭게 가능합니다.')
@@ -228,6 +245,14 @@ export default function ViewerPage() {
     setContextAnnotations((prev) =>
       prev.find((a) => a.id === annotation.id) ? prev : [...prev, annotation]
     )
+    logInteraction('context_send_to_chat', {
+      docId,
+      annotationId: annotation.id,
+      contextType: annotation.type,
+      pageIndex: annotation.pageIndex,
+      hasAutoPrompt: Boolean(annotation.autoPrompt),
+      source: 'viewer',
+    })
     if (annotation.autoPrompt) {
       setPendingChatPrompt({ id: `${annotation.id}:${Date.now()}`, text: annotation.autoPrompt })
     }
@@ -237,6 +262,13 @@ export default function ViewerPage() {
   }
 
   function handleCreateQuiz(seed) {
+    logInteraction('quiz_seed_open', {
+      docId,
+      scope: seed?.scope,
+      pageIndex: seed?.pageIndex,
+      textLength: seed?.text?.length ?? 0,
+      source: 'viewer',
+    })
     setQuizSeed({ ...seed, requestId: Date.now() })
     setActiveTab('quiz')
     setSidebarOpen(true)

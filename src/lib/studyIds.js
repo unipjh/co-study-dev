@@ -7,6 +7,11 @@ export function stableHash(value) {
   return Math.abs(hash).toString(36)
 }
 
-export function questionAnswerId(unitId, question) {
+export function questionAnswerId(unitId, question, pageIndex = null) {
+  const pagePart = pageIndex == null ? 'all' : `p${pageIndex}`
+  return `${unitId || 'unit'}_${pagePart}_${stableHash(question)}`
+}
+
+export function legacyQuestionAnswerId(unitId, question) {
   return `${unitId || 'unit'}_${stableHash(question)}`
 }

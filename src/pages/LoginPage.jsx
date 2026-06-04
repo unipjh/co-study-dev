@@ -1,6 +1,76 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { getDownloadURL, ref as storageRef } from 'firebase/storage'
 import CoStudyLogo from '../components/Brand/CoStudyLogo'
+import { storage } from '../lib/firebase'
 import './LoginPage.css'
+
+const FEATURE_VIDEOS = [
+  {
+    id: 'chat',
+    fileName: 'Chat.mp4',
+    title: 'Chat',
+    fallbackUrl: new URL('../../introduce_video/Chat.mp4', import.meta.url).href,
+  },
+  {
+    id: 'memo',
+    fileName: '메모.mp4',
+    title: '메모',
+    fallbackUrl: new URL('../../introduce_video/메모.mp4', import.meta.url).href,
+  },
+  {
+    id: 'memo-popup',
+    fileName: '메모&팝업질문.mp4',
+    title: '메모&팝업질문',
+    fallbackUrl: new URL('../../introduce_video/메모&팝업질문.mp4', import.meta.url).href,
+  },
+  {
+    id: 'ai-explain',
+    fileName: 'AI즉시설명.mp4',
+    title: 'AI즉시설명',
+    fallbackUrl: new URL('../../introduce_video/AI즉시설명.mp4', import.meta.url).href,
+  },
+  {
+    id: 'mindmap',
+    fileName: '마인드맵.mp4',
+    title: '마인드맵',
+    fallbackUrl: new URL('../../introduce_video/마인드맵.mp4', import.meta.url).href,
+  },
+  {
+    id: 'quiz',
+    fileName: '퀴즈.mp4',
+    title: '퀴즈',
+    fallbackUrl: new URL('../../introduce_video/퀴즈.mp4', import.meta.url).href,
+  },
+]
+
+const SHOULD_USE_STORAGE_VIDEOS =
+  import.meta.env.PROD || import.meta.env.VITE_INTRODUCE_VIDEO_SOURCE === 'storage'
+
+function useFeatureVideoUrl(video) {
+  const [url, setUrl] = useState(video.fallbackUrl)
+
+  useEffect(() => {
+    let cancelled = false
+    setUrl(video.fallbackUrl)
+    if (!SHOULD_USE_STORAGE_VIDEOS) return undefined
+
+    async function loadStorageUrl() {
+      try {
+        const remoteUrl = await getDownloadURL(storageRef(storage, `introduce_video/${video.fileName}`))
+        if (!cancelled) setUrl(remoteUrl)
+      } catch (err) {
+        if (!cancelled) setUrl(video.fallbackUrl)
+      }
+    }
+
+    loadStorageUrl()
+    return () => {
+      cancelled = true
+    }
+  }, [video])
+
+  return url
+}
 
 function GoogleIcon() {
   return (
@@ -16,6 +86,19 @@ function GoogleIcon() {
 export default function LoginPage({ onSignIn, onDevSignIn, devAuthEnabled }) {
   const [pendingAction, setPendingAction] = useState(null)
   const [error, setError] = useState('')
+  const [tutorialOpen, setTutorialOpen] = useState(false)
+  const [activeVideoId, setActiveVideoId] = useState(FEATURE_VIDEOS[0].id)
+  const [playNonce, setPlayNonce] = useState(0)
+  const videoRef = useRef(null)
+  const activeVideo = useMemo(
+    () => FEATURE_VIDEOS.find((video) => video.id === activeVideoId) ?? FEATURE_VIDEOS[0],
+    [activeVideoId]
+  )
+  const activeVideoUrl = useFeatureVideoUrl(activeVideo)
+
+  useEffect(() => {
+    videoRef.current?.play?.().catch(() => {})
+  }, [activeVideoId, activeVideoUrl, playNonce])
 
   async function runSignIn(action, callback) {
     setError('')
@@ -30,7 +113,84 @@ export default function LoginPage({ onSignIn, onDevSignIn, devAuthEnabled }) {
   }
 
   function handleFeatureClick() {
-    window.alert('아직 기능 소개 준비 x')
+    setTutorialOpen(true)
+    setPlayNonce((count) => count + 1)
+  }
+
+  function handleVideoSelect(videoId) {
+    setActiveVideoId(videoId)
+    setPlayNonce((count) => count + 1)
+  }
+
+  if (tutorialOpen) {
+    return (
+      <main className="login-page login-page-tutorial">
+        <CoStudyLogo className="login-wordmark login-wordmark-tutorial" />
+
+        <section className="tutorial-view" aria-label="Co-Study 기능 보기">
+          <header className="tutorial-header">
+            <button type="button" className="tutorial-back" onClick={() => setTutorialOpen(false)}>
+              돌아가기
+            </button>
+            <h1 className="tutorial-title">기능 보기</h1>
+            <button
+              type="button"
+              className="tutorial-google"
+              onClick={() => runSignIn('google', onSignIn)}
+              disabled={Boolean(pendingAction)}
+            >
+              <GoogleIcon />
+              {pendingAction === 'google' ? '로그인 중...' : '구글로 로그인'}
+            </button>
+          </header>
+
+          <div className="tutorial-layout">
+            <nav className="tutorial-tabs" aria-label="기능 영상 목록">
+              {FEATURE_VIDEOS.map((video) => (
+                <button
+                  key={video.id}
+                  type="button"
+                  className={`tutorial-tab${video.id === activeVideo.id ? ' is-active' : ''}`}
+                  onClick={() => handleVideoSelect(video.id)}
+                  aria-pressed={video.id === activeVideo.id}
+                >
+                  {video.title}
+                </button>
+              ))}
+            </nav>
+
+            <div className="tutorial-player-wrap">
+              <div className="tutorial-player-heading">{activeVideo.title}</div>
+              <div className="tutorial-player">
+                <video
+                  key={`${activeVideo.id}-${activeVideoUrl}-${playNonce}`}
+                  ref={videoRef}
+                  className="tutorial-video"
+                  src={activeVideoUrl}
+                  controls
+                  autoPlay
+                  muted
+                  playsInline
+                  preload="metadata"
+                />
+              </div>
+            </div>
+          </div>
+
+          {devAuthEnabled && (
+            <button
+              type="button"
+              className="login-dev tutorial-dev"
+              onClick={() => runSignIn('dev', onDevSignIn)}
+              disabled={Boolean(pendingAction)}
+            >
+              {pendingAction === 'dev' ? '테스트 로그인 중...' : 'Playwright 테스트 로그인'}
+            </button>
+          )}
+          {error && <p className="login-error tutorial-error">{error}</p>}
+        </section>
+      </main>
+    )
   }
 
   return (

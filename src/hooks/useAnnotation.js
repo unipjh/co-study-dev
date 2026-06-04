@@ -5,6 +5,7 @@ import useAnnotationStore from '../store/annotationStore'
 import useAnnotationUndoStore from '../store/annotationUndoStore'
 import useAuthStore from '../store/authStore'
 import { generateId, isOverlapping } from '../lib/selectionUtils'
+import { logInteraction } from '../lib/interactionLogs'
 
 const EMPTY_ANNOTATIONS = []
 
@@ -85,6 +86,15 @@ export default function useAnnotation(docId) {
 
     await setDoc(doc(itemsCol(uid, docId), newItem.id), newItem)
     addAnnotation(docId, newItem)
+    logInteraction('annotation_create', {
+      docId,
+      annotationId: newItem.id,
+      annotationType: newItem.type,
+      pageIndex: newItem.pageIndex,
+      hasMemo: Boolean(content?.trim()),
+      groupCount: groups.length,
+      overlappingCount: overlapping.length,
+    })
     pushUndo({
       id: `create:${newItem.id}`,
       message: '메모를 저장했습니다.',
@@ -104,6 +114,12 @@ export default function useAnnotation(docId) {
     const updated = { ...current, ...patch }
     await setDoc(doc(itemsCol(uid, docId), id), updated)
     updateAnnotation(docId, id, patch)
+    logInteraction('annotation_update', {
+      docId,
+      annotationId: id,
+      pageIndex: current.pageIndex,
+      patchKeys: Object.keys(patch),
+    })
     pushUndo({
       id: `update:${id}:${Date.now()}`,
       message: '메모를 수정했습니다.',
@@ -121,6 +137,13 @@ export default function useAnnotation(docId) {
     if (!current) return
     await deleteDoc(doc(itemsCol(uid, docId), id))
     removeAnnotation(docId, id)
+    logInteraction('annotation_delete', {
+      docId,
+      annotationId: id,
+      annotationType: current.type,
+      pageIndex: current.pageIndex,
+      source: 'annotation',
+    })
     pushUndo({
       id: `delete:${id}`,
       message: '메모를 삭제했습니다.',
