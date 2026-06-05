@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { getDocs, limit, orderBy, query } from 'firebase/firestore'
-import { auth } from '../lib/firebase'
+import { collectionGroup, getDocs, limit, orderBy, query } from 'firebase/firestore'
+import { auth, db } from '../lib/firebase'
 import {
   getLogDashboardPassword,
+  INTERACTION_LOG_COLLECTION,
   interactionLogsCollection,
   isInteractionLoggingEnabled,
   logInteraction,
@@ -51,6 +52,16 @@ function shortId(value) {
   return String(value).slice(0, 8)
 }
 
+function getUserKey(item) {
+  return item.userId || 'unknown'
+}
+
+function formatUserLabel(userId, currentUid) {
+  if (userId === 'unknown') return '사용자 없음'
+  const suffix = userId === currentUid ? '현재 사용자' : shortId(userId)
+  return `${suffix} (${shortId(userId)})`
+}
+
 export default function InteractionLogDashboard({ open, onClose }) {
   const requiredPassword = getLogDashboardPassword()
   const [authorized, setAuthorized] = useState(() => sessionStorage.getItem(AUTH_KEY) === 'true')
@@ -59,37 +70,88 @@ export default function InteractionLogDashboard({ open, onClose }) {
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [loadScope, setLoadScope] = useState('current')
+  const [userFilter, setUserFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
+
+  const userOptions = useMemo(() => {
+    const currentUid = auth.currentUser?.uid ?? null
+    const counts = logs.reduce((acc, item) => {
+      const key = getUserKey(item)
+      acc.set(key, (acc.get(key) ?? 0) + 1)
+      return acc
+    }, new Map())
+
+    return [...counts.entries()]
+      .map(([userId, count]) => ({
+        userId,
+        count,
+        label: formatUserLabel(userId, currentUid),
+      }))
+      .sort((a, b) => {
+        if (a.userId === currentUid) return -1
+        if (b.userId === currentUid) return 1
+        return a.userId.localeCompare(b.userId)
+      })
+  }, [logs])
 
   const eventTypes = useMemo(() => {
     return [...new Set(logs.map((item) => item.eventType).filter(Boolean))].sort((a, b) => a.localeCompare(b))
   }, [logs])
 
   const filteredLogs = useMemo(() => {
-    if (typeFilter === 'all') return logs
-    return logs.filter((item) => item.eventType === typeFilter)
-  }, [logs, typeFilter])
+    return logs.filter((item) => {
+      const userMatches = userFilter === 'all' || getUserKey(item) === userFilter
+      const typeMatches = typeFilter === 'all' || item.eventType === typeFilter
+      return userMatches && typeMatches
+    })
+  }, [logs, typeFilter, userFilter])
 
   const uniqueSessions = useMemo(() => {
-    return new Set(logs.map((item) => item.sessionId).filter(Boolean)).size
-  }, [logs])
+    return new Set(filteredLogs.map((item) => item.sessionId).filter(Boolean)).size
+  }, [filteredLogs])
+
+  useEffect(() => {
+    if (userFilter === 'all') return
+    if (userOptions.some((option) => option.userId === userFilter)) return
+    setUserFilter('all')
+  }, [userFilter, userOptions])
 
   async function loadLogs() {
     setLoading(true)
     setLoadError('')
     try {
-      const logsRef = interactionLogsCollection(auth.currentUser?.uid)
-      if (!logsRef) {
-        setLogs([])
-        setLoadError('로그인 사용자만 로그를 조회할 수 있습니다.')
-        return
+      let snapshot = null
+      let scope = 'all'
+      try {
+        snapshot = await getDocs(query(
+          collectionGroup(db, INTERACTION_LOG_COLLECTION),
+          orderBy('timestamp', 'desc'),
+          limit(LOG_LIMIT),
+        ))
+      } catch (error) {
+        if (import.meta.env.DEV) {
+          console.info('[interactionLogs] falling back to current user logs', error?.message)
+        }
       }
-      const q = query(
-        logsRef,
-        orderBy('timestamp', 'desc'),
-        limit(LOG_LIMIT),
-      )
-      const snapshot = await getDocs(q)
+
+      if (!snapshot) {
+        scope = 'current'
+        const logsRef = interactionLogsCollection(auth.currentUser?.uid)
+        if (!logsRef) {
+          setLogs([])
+          setLoadScope(scope)
+          setLoadError('로그인 사용자만 로그를 조회할 수 있습니다.')
+          return
+        }
+        snapshot = await getDocs(query(
+          logsRef,
+          orderBy('timestamp', 'desc'),
+          limit(LOG_LIMIT),
+        ))
+      }
+
+      setLoadScope(scope)
       setLogs(snapshot.docs.map((docSnap) => ({ id: docSnap.id, ...docSnap.data() })))
     } catch (error) {
       setLoadError(error?.message ?? '로그를 불러오지 못했습니다.')
@@ -173,6 +235,10 @@ export default function InteractionLogDashboard({ open, onClose }) {
                 <strong>{logs.length}</strong>
               </div>
               <div>
+                <span>사용자</span>
+                <strong>{userOptions.length}</strong>
+              </div>
+              <div>
                 <span>필터 결과</span>
                 <strong>{filteredLogs.length}</strong>
               </div>
@@ -183,15 +249,43 @@ export default function InteractionLogDashboard({ open, onClose }) {
             </div>
 
             <div className="log-dashboard-controls">
-              <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} aria-label="이벤트 타입 필터">
-                <option value="all">전체 이벤트</option>
-                {eventTypes.map((type) => (
-                  <option key={type} value={type}>{type}</option>
-                ))}
-              </select>
+              <div className="log-dashboard-filter-group">
+                <label htmlFor="log-user-filter">사용자</label>
+                <select
+                  id="log-user-filter"
+                  value={userFilter}
+                  onChange={(event) => setUserFilter(event.target.value)}
+                  aria-label="사용자 필터"
+                >
+                  <option value="all">전체 사용자</option>
+                  {userOptions.map((option) => (
+                    <option key={option.userId} value={option.userId}>
+                      {option.label} · {option.count}개
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="log-dashboard-filter-group">
+                <label htmlFor="log-event-filter">이벤트</label>
+                <select
+                  id="log-event-filter"
+                  value={typeFilter}
+                  onChange={(event) => setTypeFilter(event.target.value)}
+                  aria-label="이벤트 타입 필터"
+                >
+                  <option value="all">전체 이벤트</option>
+                  {eventTypes.map((type) => (
+                    <option key={type} value={type}>{type}</option>
+                  ))}
+                </select>
+              </div>
               <button type="button" onClick={loadLogs} disabled={loading}>
                 {loading ? '새로고침 중' : '새로고침'}
               </button>
+            </div>
+
+            <div className="log-dashboard-scope-note">
+              조회 범위: {loadScope === 'all' ? '전체 사용자 로그' : '현재 로그인 사용자 로그'}
             </div>
 
             {loadError && <div className="log-dashboard-error">{loadError}</div>}
