@@ -9,57 +9,77 @@ const FEATURE_VIDEOS = [
     id: 'chat',
     fileName: 'Chat.mp4',
     title: 'Chat',
-    fallbackUrl: new URL('../../introduce_video/Chat.mp4', import.meta.url).href,
   },
   {
     id: 'memo',
     fileName: '메모.mp4',
     title: '메모',
-    fallbackUrl: new URL('../../introduce_video/메모.mp4', import.meta.url).href,
   },
   {
     id: 'memo-popup',
     fileName: '메모&팝업질문.mp4',
     title: '메모&팝업질문',
-    fallbackUrl: new URL('../../introduce_video/메모&팝업질문.mp4', import.meta.url).href,
   },
   {
     id: 'ai-explain',
     fileName: 'AI즉시설명.mp4',
     title: 'AI즉시설명',
-    fallbackUrl: new URL('../../introduce_video/AI즉시설명.mp4', import.meta.url).href,
   },
   {
     id: 'mindmap',
     fileName: '마인드맵.mp4',
     title: '마인드맵',
-    fallbackUrl: new URL('../../introduce_video/마인드맵.mp4', import.meta.url).href,
   },
   {
     id: 'quiz',
     fileName: '퀴즈.mp4',
     title: '퀴즈',
-    fallbackUrl: new URL('../../introduce_video/퀴즈.mp4', import.meta.url).href,
   },
 ]
 
 const SHOULD_USE_STORAGE_VIDEOS =
   import.meta.env.PROD || import.meta.env.VITE_INTRODUCE_VIDEO_SOURCE === 'storage'
+const VIDEO_URL_TIMEOUT_MS = 5000
+
+function getLocalVideoUrl(fileName) {
+  return `/introduce_video/${encodeURIComponent(fileName)}`
+}
+
+function withTimeout(promise, timeoutMs) {
+  let timeoutId
+  const timeout = new Promise((_, reject) => {
+    timeoutId = window.setTimeout(() => reject(new Error('video-url-timeout')), timeoutMs)
+  })
+
+  return Promise.race([promise, timeout]).finally(() => window.clearTimeout(timeoutId))
+}
 
 function useFeatureVideoUrl(video) {
-  const [url, setUrl] = useState(video.fallbackUrl)
+  const [state, setState] = useState(() => ({
+    loading: SHOULD_USE_STORAGE_VIDEOS,
+    url: SHOULD_USE_STORAGE_VIDEOS ? '' : getLocalVideoUrl(video.fileName),
+  }))
 
   useEffect(() => {
     let cancelled = false
-    setUrl(video.fallbackUrl)
-    if (!SHOULD_USE_STORAGE_VIDEOS) return undefined
+    const localUrl = getLocalVideoUrl(video.fileName)
+
+    if (!SHOULD_USE_STORAGE_VIDEOS) {
+      setState({ loading: false, url: localUrl })
+      return undefined
+    }
+
+    setState({ loading: true, url: '' })
 
     async function loadStorageUrl() {
       try {
-        const remoteUrl = await getDownloadURL(storageRef(storage, `introduce_video/${video.fileName}`))
-        if (!cancelled) setUrl(remoteUrl)
+        const remoteUrl = await withTimeout(
+          getDownloadURL(storageRef(storage, `introduce_video/${video.fileName}`)),
+          VIDEO_URL_TIMEOUT_MS,
+        )
+        if (!cancelled) setState({ loading: false, url: remoteUrl })
       } catch (err) {
-        if (!cancelled) setUrl(video.fallbackUrl)
+        if (!cancelled) setState({ loading: false, url: localUrl })
       }
     }
 
@@ -69,7 +89,7 @@ function useFeatureVideoUrl(video) {
     }
   }, [video])
 
-  return url
+  return state
 }
 
 function GoogleIcon() {
@@ -94,10 +114,12 @@ export default function LoginPage({ onSignIn, onDevSignIn, devAuthEnabled }) {
     () => FEATURE_VIDEOS.find((video) => video.id === activeVideoId) ?? FEATURE_VIDEOS[0],
     [activeVideoId]
   )
-  const activeVideoUrl = useFeatureVideoUrl(activeVideo)
+  const { loading: videoLoading, url: activeVideoUrl } = useFeatureVideoUrl(activeVideo)
+  const [videoLoadError, setVideoLoadError] = useState(false)
 
   useEffect(() => {
-    videoRef.current?.play?.().catch(() => {})
+    setVideoLoadError(false)
+    if (activeVideoUrl) videoRef.current?.play?.().catch(() => {})
   }, [activeVideoId, activeVideoUrl, playNonce])
 
   async function runSignIn(action, callback) {
@@ -162,17 +184,27 @@ export default function LoginPage({ onSignIn, onDevSignIn, devAuthEnabled }) {
             <div className="tutorial-player-wrap">
               <div className="tutorial-player-heading">{activeVideo.title}</div>
               <div className="tutorial-player">
-                <video
-                  key={`${activeVideo.id}-${activeVideoUrl}-${playNonce}`}
-                  ref={videoRef}
-                  className="tutorial-video"
-                  src={activeVideoUrl}
-                  controls
-                  autoPlay
-                  muted
-                  playsInline
-                  preload="metadata"
-                />
+                {videoLoading && (
+                  <div className="tutorial-video-state" role="status">영상을 불러오는 중입니다.</div>
+                )}
+                {!videoLoading && videoLoadError && (
+                  <div className="tutorial-video-state" role="status">영상을 불러오지 못했습니다.</div>
+                )}
+                {activeVideoUrl && (
+                  <video
+                    key={`${activeVideo.id}-${activeVideoUrl}-${playNonce}`}
+                    ref={videoRef}
+                    className={`tutorial-video${videoLoadError ? ' is-hidden' : ''}`}
+                    src={activeVideoUrl}
+                    controls
+                    autoPlay
+                    muted
+                    playsInline
+                    preload="metadata"
+                    onLoadedData={() => setVideoLoadError(false)}
+                    onError={() => setVideoLoadError(true)}
+                  />
+                )}
               </div>
             </div>
           </div>

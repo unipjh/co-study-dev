@@ -2,6 +2,10 @@ node_modules
 dist
 .env
 .env.local
+serviceAccountKey.json
+scripts/serviceAccountKey.json
+*service-account*.json
+firebase-adminsdk-*.json
 vite-dev*.log
 .playwright-mcp/
 

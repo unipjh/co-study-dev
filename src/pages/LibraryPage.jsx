@@ -93,7 +93,7 @@ function FileCard({ doc, accent, onOpen, onStartFolderEdit, editingFolder, onFol
 export default function LibraryPage() {
   const navigate = useNavigate()
   const { documents, loading, remove, moveToFolder, deleteFolder } = useDocumentList()
-  const { upload, progress, uploading } = useDocumentUpload()
+  const { upload, progress, uploading, error: uploadError } = useDocumentUpload()
   const { user, signOut } = useAuth()
   const fileInputRef = useRef(null)
 
@@ -278,6 +278,12 @@ export default function LibraryPage() {
         {uploading && (
           <div className="library-upload-progress" aria-label={`업로드 진행률 ${progress}%`}>
             <span style={{ width: `${progress}%` }} />
+          </div>
+        )}
+
+        {uploadError && (
+          <div className="library-upload-error" role="alert">
+            {uploadError}
           </div>
         )}
 

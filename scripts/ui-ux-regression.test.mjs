@@ -30,14 +30,36 @@ function read(path) {
 {
   const source = read('src/pages/LoginPage.jsx')
   assert.match(source, /className="login-page"/)
-  assert.match(source, /아직 기능 소개 준비 x/)
+  assert.match(source, /FEATURE_VIDEOS/)
+  assert.match(source, /기능 보기/)
+  assert.match(source, /tutorial-video/)
+  assert.match(source, /getDownloadURL/)
+  assert.match(source, /VITE_INTRODUCE_VIDEO_SOURCE/)
   assert.match(source, /구글로 로그인 하기/)
+  assert.doesNotMatch(source, /아직 기능 소개 준비 x/)
   assert.doesNotMatch(source, /feature-section/)
   assert.doesNotMatch(source, /landing-hero/)
 }
 
 {
+  const uploadSource = read('src/hooks/useDocumentUpload.js')
+  const librarySource = read('src/pages/LibraryPage.jsx')
+  assert.match(uploadSource, /MAX_PDF_UPLOAD_BYTES = 100 \* 1024 \* 1024/)
+  assert.match(uploadSource, /PDF는 최대/)
+  assert.match(uploadSource, /storage\/unauthorized/)
+  assert.match(uploadSource, /permission-denied/)
+  assert.match(uploadSource, /resolve\(null\)/)
+  assert.match(uploadSource, /function isPdfFile/)
+  assert.match(uploadSource, /deleteObject/)
+  assert.match(librarySource, /library-upload-error/)
+  assert.match(librarySource, /role="alert"/)
+}
+
+{
   const source = read('src/pages/ViewerPage.jsx')
+  assert.match(source, /function getDocumentLoadErrorMessage/)
+  assert.match(source, /storage\/object-not-found/)
+  assert.match(source, /storage\/unauthorized/)
   assert.match(source, /const SIDEBAR_MIN_RATIO = 0\.2/)
   assert.match(source, /const SIDEBAR_MAX_RATIO = 0\.5/)
   assert.match(source, /const SIDEBAR_DEFAULT_RATIO = 0\.4/)

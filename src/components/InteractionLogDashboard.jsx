@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { collectionGroup, getDocs, limit, orderBy, query } from 'firebase/firestore'
 import { auth, db } from '../lib/firebase'
+import { buildInteractionLogCsv } from '../lib/interactionLogCsv'
 import {
   getLogDashboardPassword,
   INTERACTION_LOG_COLLECTION,
@@ -12,6 +13,10 @@ import './InteractionLogDashboard.css'
 
 const AUTH_KEY = 'costudy:logDashboardAuthorized'
 const LOG_LIMIT = 300
+
+function getDashboardAuthKey(uid = auth.currentUser?.uid) {
+  return `${AUTH_KEY}:${uid || 'anonymous'}`
+}
 
 function toDate(value) {
   if (!value) return null
@@ -64,13 +69,14 @@ function formatUserLabel(userId, currentUid) {
 
 export default function InteractionLogDashboard({ open, onClose }) {
   const requiredPassword = getLogDashboardPassword()
-  const [authorized, setAuthorized] = useState(() => sessionStorage.getItem(AUTH_KEY) === 'true')
+  const [authorized, setAuthorized] = useState(() => sessionStorage.getItem(getDashboardAuthKey()) === 'true')
   const [password, setPassword] = useState('')
   const [authError, setAuthError] = useState('')
   const [logs, setLogs] = useState([])
   const [loading, setLoading] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [loadScope, setLoadScope] = useState('current')
+  const [logAdminStatus, setLogAdminStatus] = useState('unknown')
   const [userFilter, setUserFilter] = useState('all')
   const [typeFilter, setTypeFilter] = useState('all')
 
@@ -111,6 +117,8 @@ export default function InteractionLogDashboard({ open, onClose }) {
     return new Set(filteredLogs.map((item) => item.sessionId).filter(Boolean)).size
   }, [filteredLogs])
 
+  const canDownloadCsv = !loading && filteredLogs.length > 0
+
   useEffect(() => {
     if (userFilter === 'all') return
     if (userOptions.some((option) => option.userId === userFilter)) return
@@ -123,16 +131,33 @@ export default function InteractionLogDashboard({ open, onClose }) {
     try {
       let snapshot = null
       let scope = 'all'
+      let fallbackReason = ''
+      let hasLogAdminClaim = false
+
       try {
-        snapshot = await getDocs(query(
-          collectionGroup(db, INTERACTION_LOG_COLLECTION),
-          orderBy('timestamp', 'desc'),
-          limit(LOG_LIMIT),
-        ))
+        const token = await auth.currentUser?.getIdTokenResult(true)
+        hasLogAdminClaim = token?.claims?.logAdmin === true
+        setLogAdminStatus(hasLogAdminClaim ? 'granted' : 'missing')
       } catch (error) {
-        if (import.meta.env.DEV) {
-          console.info('[interactionLogs] falling back to current user logs', error?.message)
+        fallbackReason = `관리자 권한 토큰을 확인하지 못했습니다: ${error?.message ?? 'unknown'}`
+        setLogAdminStatus('unknown')
+      }
+
+      if (hasLogAdminClaim) {
+        try {
+          snapshot = await getDocs(query(
+            collectionGroup(db, INTERACTION_LOG_COLLECTION),
+            orderBy('timestamp', 'desc'),
+            limit(LOG_LIMIT),
+          ))
+        } catch (error) {
+          fallbackReason = `전체 사용자 로그 조회가 거부되었습니다: ${error?.message ?? 'unknown'}`
+          if (import.meta.env.DEV) {
+            console.info('[interactionLogs] falling back to current user logs', error?.message)
+          }
         }
+      } else if (!fallbackReason) {
+        fallbackReason = '현재 계정의 ID token에 logAdmin 권한이 없습니다.'
       }
 
       if (!snapshot) {
@@ -149,6 +174,7 @@ export default function InteractionLogDashboard({ open, onClose }) {
           orderBy('timestamp', 'desc'),
           limit(LOG_LIMIT),
         ))
+        if (fallbackReason) setLoadError(fallbackReason)
       }
 
       setLoadScope(scope)
@@ -159,6 +185,11 @@ export default function InteractionLogDashboard({ open, onClose }) {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (!open) return
+    setAuthorized(sessionStorage.getItem(getDashboardAuthKey()) === 'true')
+  }, [open])
 
   useEffect(() => {
     if (!open || !authorized) return
@@ -183,10 +214,31 @@ export default function InteractionLogDashboard({ open, onClose }) {
       return
     }
 
-    sessionStorage.setItem(AUTH_KEY, 'true')
+    sessionStorage.setItem(getDashboardAuthKey(), 'true')
     setAuthorized(true)
     setPassword('')
     logInteraction('log_dashboard_auth_success', { source: 'library' })
+  }
+
+  function handleCsvDownload() {
+    if (!canDownloadCsv) return
+
+    const blob = new Blob([buildInteractionLogCsv(filteredLogs)], { type: 'text/csv;charset=utf-8;' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `costudy-interaction-logs-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.setTimeout(() => window.URL.revokeObjectURL(url), 0)
+
+    logInteraction('log_dashboard_csv_download', {
+      rows: filteredLogs.length,
+      userFilter,
+      typeFilter,
+      scope: loadScope,
+    })
   }
 
   return (
@@ -279,13 +331,25 @@ export default function InteractionLogDashboard({ open, onClose }) {
                   ))}
                 </select>
               </div>
-              <button type="button" onClick={loadLogs} disabled={loading}>
-                {loading ? '새로고침 중' : '새로고침'}
-              </button>
+              <div className="log-dashboard-actions">
+                <button type="button" onClick={loadLogs} disabled={loading}>
+                  {loading ? '새로고침 중' : '새로고침'}
+                </button>
+                <button
+                  type="button"
+                  className="log-dashboard-secondary-action"
+                  onClick={handleCsvDownload}
+                  disabled={!canDownloadCsv}
+                >
+                  CSV 다운로드
+                </button>
+              </div>
             </div>
 
             <div className="log-dashboard-scope-note">
-              조회 범위: {loadScope === 'all' ? '전체 사용자 로그' : '현재 로그인 사용자 로그'}
+              조회 범위: {loadScope === 'all' ? '전체 사용자 로그' : '현재 로그인 사용자 로그 (Firestore 권한 제한)'}
+              {' · '}
+              관리자 권한: {logAdminStatus === 'granted' ? '확인됨' : logAdminStatus === 'missing' ? '없음' : '확인 중'}
             </div>
 
             {loadError && <div className="log-dashboard-error">{loadError}</div>}

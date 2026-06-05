@@ -81,8 +81,7 @@ src/
 
 scripts/                  # AI/RAG/퀴즈/마인드맵/학습 게이트/UI 회귀 테스트
 docs/                     # 기획, 변경 보고서, UX/기술 검증 문서
-introduce_video/          # 로그인 튜토리얼용 기능 소개 영상
-public/                   # favicon, OG 이미지
+public/                   # favicon, OG 이미지, 로컬 기능 소개 영상 fallback
 ```
 
 ---

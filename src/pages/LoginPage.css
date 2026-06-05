@@ -299,6 +299,7 @@
 .tutorial-player {
   width: min(100%, 960px);
   aspect-ratio: 16 / 9;
+  position: relative;
   border-radius: 8px;
   overflow: hidden;
   background: #090a12;
@@ -310,6 +311,25 @@
   height: 100%;
   display: block;
   object-fit: contain;
+  background: #090a12;
+}
+
+.tutorial-video.is-hidden {
+  display: none;
+}
+
+.tutorial-video-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  color: rgba(255, 255, 255, 0.84);
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 800;
+  text-align: center;
   background: #090a12;
 }
 

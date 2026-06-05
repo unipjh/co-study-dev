@@ -218,6 +218,18 @@
   transition: width 0.2s ease;
 }
 
+.library-upload-error {
+  margin: 18px 0 -6px;
+  padding: 11px 14px;
+  border: 1px solid #fecdd6;
+  border-radius: 8px;
+  background: #fff1f3;
+  color: #b42318;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 800;
+}
+
 .library-controls {
   margin-top: 38px;
   min-height: 40px;

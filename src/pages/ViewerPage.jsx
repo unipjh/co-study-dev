@@ -19,6 +19,19 @@ const SIDEBAR_MAX_RATIO = 0.5
 const SIDEBAR_DEFAULT_RATIO = 0.4
 const MOBILE_SIDEBAR_RATIO = 0.85
 
+function getDocumentLoadErrorMessage(error) {
+  const code = error?.code ?? ''
+
+  if (code === 'permission-denied') return '문서 정보를 읽을 권한이 없습니다. 다시 로그인한 뒤 시도해 주세요.'
+  if (code === 'storage/unauthorized') return 'PDF 파일을 읽을 권한이 없습니다. Storage Rules를 확인해 주세요.'
+  if (code === 'storage/object-not-found') return 'PDF 파일을 찾을 수 없습니다. 파일이 삭제되었거나 업로드가 완전히 끝나지 않았을 수 있습니다.'
+  if (code === 'storage/retry-limit-exceeded') return '네트워크가 불안정해 PDF를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'
+  if (code === 'storage/quota-exceeded') return 'Firebase Storage 사용량 제한으로 PDF를 불러오지 못했습니다.'
+  if (code === 'unavailable') return '서버 연결이 불안정합니다. 네트워크 상태를 확인한 뒤 다시 시도해 주세요.'
+
+  return error?.message || '문서를 불러오지 못했습니다.'
+}
+
 function clampSidebarRatio(ratio) {
   return Math.min(SIDEBAR_MAX_RATIO, Math.max(SIDEBAR_MIN_RATIO, ratio))
 }
@@ -158,7 +171,7 @@ export default function ViewerPage() {
       const blob = await getBlob(ref(storage, meta.storagePath))
       setStorageDoc({ blob, name: meta.name })
     }
-    loadDoc().catch((e) => setLoadError(e.message))
+    loadDoc().catch((e) => setLoadError(getDocumentLoadErrorMessage(e)))
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [docId, uid, retryCount])
 
